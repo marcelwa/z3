@@ -23,10 +23,6 @@ Notes:
 #ifndef _SPACER_CONTEXT_H_
 #define _SPACER_CONTEXT_H_
 
-#ifdef _CYGWIN
-#undef min
-#undef max
-#endif
 #include <queue>
 #include "util/scoped_ptr_vector.h"
 #include "muz/spacer/spacer_manager.h"
@@ -1069,6 +1065,7 @@ public:
 
     ast_manager&      get_ast_manager() const {return m;}
     manager&          get_manager() {return m_pm;}
+    const manager &   get_manager() const {return m_pm;}
     decl2rel const&   get_pred_transformers() const {return m_rels;}
     pred_transformer& get_pred_transformer(func_decl* p) const {return *m_rels.find(p);}
 
@@ -1087,7 +1084,7 @@ public:
      * (for e.g. P(0,1,0,0,3)) that together form a ground derivation to query
      */
     expr_ref get_ground_sat_answer () const;
-    proof_ref get_ground_refutation();
+    proof_ref get_ground_refutation() const;
     void get_rules_along_trace (datalog::rule_ref_vector& rules);
 
     void collect_statistics(statistics& st) const;

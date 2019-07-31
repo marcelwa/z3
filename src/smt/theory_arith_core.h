@@ -240,12 +240,23 @@ namespace smt {
                 return;
             }
         }
-        rational _val;
+        rational _val1, _val2;
         expr* arg1, *arg2;
-        if (m_util.is_mul(m, arg1, arg2) && m_util.is_numeral(arg1, _val) && is_app(arg1) && is_app(arg2)) {
+        if (m_util.is_mul(m, arg1, arg2) && m_util.is_numeral(arg1, _val1) && is_app(arg1) && is_app(arg2)) {
             SASSERT(m->get_num_args() == 2);
-            numeral val(_val);
-            theory_var v = internalize_term_core(to_app(arg2));
+            if (m_util.is_numeral(arg2, _val2)) {
+                numeral val(_val1 + _val2);
+                if (reflection_enabled()) {
+                    internalize_term_core(to_app(arg1));
+                    internalize_term_core(to_app(arg2));
+                    mk_enode(m);
+                }
+                theory_var v = internalize_numeral(m, val);
+                add_row_entry<true>(r_id, numeral::one(), v);
+                return;
+            }
+            numeral val(_val1);
+            theory_var v = internalize_term_core(to_app(arg2));            
             if (reflection_enabled()) {
                 internalize_term_core(to_app(arg1));
                 mk_enode(m);
@@ -329,6 +340,7 @@ namespace smt {
     theory_var theory_arith<Ext>::internalize_mul(app * m) {
         rational _val;
         SASSERT(m_util.is_mul(m));
+        SASSERT(!m_util.is_numeral(m->get_arg(1)));
         if (m_util.is_numeral(m->get_arg(0), _val)) {
             SASSERT(m->get_num_args() == 2);
             numeral val(_val);
@@ -426,6 +438,7 @@ namespace smt {
         bool negated;
 
         s(ante, s_ante);
+
         if (ctx.get_cancel_flag()) return;
         negated = m.is_not(s_ante, s_ante_n);
         if (negated) s_ante = s_ante_n;
@@ -447,7 +460,14 @@ namespace smt {
               tout << l_ante << "\n" << l_conseq << "\n";);
 
         // literal lits[2] = {l_ante, l_conseq};
+        if (m.has_trace_stream()) {
+            app_ref body(m);
+            body = m.mk_or(ante, conseq);
+            log_axiom_instantiation(body);
+        }
         mk_clause(l_ante, l_conseq, 0, nullptr);
+        if (m.has_trace_stream()) m.trace_stream() << "[end-of-instance]\n";
+
         if (ctx.relevancy()) {
             if (l_ante == false_literal) {
                 ctx.mark_as_relevant(l_conseq);
@@ -482,12 +502,12 @@ namespace smt {
 
     template<typename Ext>
     void theory_arith<Ext>::mk_idiv_mod_axioms(expr * dividend, expr * divisor) {
+        th_rewriter & s  = get_context().get_rewriter();
         if (!m_util.is_zero(divisor)) {
             ast_manager & m = get_manager();
             // if divisor is zero, then idiv and mod are uninterpreted functions.
             expr_ref div(m), mod(m), zero(m), abs_divisor(m), one(m);
             expr_ref eqz(m), eq(m), lower(m), upper(m);
-            th_rewriter & s  = get_context().get_rewriter();
             div         = m_util.mk_idiv(dividend, divisor);
             mod         = m_util.mk_mod(dividend, divisor);
             zero        = m_util.mk_int(0);
@@ -508,6 +528,17 @@ namespace smt {
             mk_axiom(eqz, upper, !m_util.is_numeral(abs_divisor));
             rational k;
             context& ctx = get_context();
+
+            if (!m_util.is_numeral(divisor)) {
+                // (=> (> y 0) (<= (* y (div x y)) x))
+                // (=> (< y 0) ???)
+                expr_ref div_ge(m), div_non_pos(m);
+                div_ge = m_util.mk_ge(m_util.mk_sub(dividend, m_util.mk_mul(divisor, div)), zero);
+                s(div_ge);
+                div_non_pos = m_util.mk_le(divisor, zero);
+                mk_axiom(div_non_pos, div_ge, false);
+            }
+
             (void)ctx;
             if (m_params.m_arith_enum_const_mod && m_util.is_numeral(divisor, k) &&
                 k.is_pos() && k < rational(8)) {
@@ -517,7 +548,9 @@ namespace smt {
                 expr_ref mod_j(m);
                 while(j < k) {
                     mod_j = m.mk_eq(mod, m_util.mk_numeral(j, true));
+                    if (m.has_trace_stream()) log_axiom_instantiation(mod_j);
                     ctx.internalize(mod_j, false);
+                    if (m.has_trace_stream()) m.trace_stream() << "[end-of-instance]\n";
                     literal lit(ctx.get_literal(mod_j));
                     lits.push_back(lit);
                     ctx.mark_as_relevant(lit);
@@ -542,6 +575,7 @@ namespace smt {
                 }
 #endif
             }
+
 #if 0
             // e-matching is too restrictive for multiplication.
             // also suffers from use-after free so formulas have to be pinned in solver.
@@ -691,7 +725,16 @@ namespace smt {
         rational _val;
         VERIFY(m_util.is_numeral(n, _val));
         numeral val(_val);
-        SASSERT(!get_context().e_internalized(n));
+        return internalize_numeral(n, val);
+    }
+
+    template<typename Ext>
+    theory_var theory_arith<Ext>::internalize_numeral(app * n, numeral const& val) {
+        
+        context& ctx = get_context();
+        if (ctx.e_internalized(n)) {
+            return mk_var(ctx.get_enode(n));
+        }
         enode * e    = mk_enode(n);
         // internalizer is marking enodes as interpreted whenever the associated ast is a value and a constant.
         // e->mark_as_interpreted();
@@ -2983,7 +3026,7 @@ namespace smt {
                 js = alloc(theory_lemma_justification, get_id(), ctx, lits.size(), lits.c_ptr(),
                            ante.num_params(), ante.params("assign-bounds"));
             }
-            ctx.mk_clause(lits.size(), lits.c_ptr(), js, CLS_AUX_LEMMA, nullptr);
+            ctx.mk_clause(lits.size(), lits.c_ptr(), js, CLS_TH_LEMMA, nullptr);
         }
         else {
             region & r = ctx.get_region();

@@ -298,7 +298,15 @@ void insert_produce_proofs(param_descrs & r) {
 }
 
 void insert_timeout(param_descrs & r) {
-    r.insert("timeout", CPK_UINT, "(default: infty) timeout in milliseconds.");
+    r.insert("timeout", CPK_UINT, "(default: infty) timeout in milliseconds.", "4294967295");
+}
+
+void insert_rlimit(param_descrs & r) {
+    r.insert("rlimit", CPK_UINT, "default resource limit used for solvers. Unrestricted when set to 0.", "0");
+}
+
+void insert_ctrl_c(param_descrs & r) {
+    r.insert("ctrl_c", CPK_BOOL, "enable interrupts from ctrl-c", "true");
 }
 
 class params {

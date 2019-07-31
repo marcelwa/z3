@@ -391,44 +391,57 @@ br_status seq_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * con
         
     case OP_SEQ_UNIT:
         SASSERT(num_args == 1);
-        return mk_seq_unit(args[0], result);
+        st = mk_seq_unit(args[0], result);
+        break;
     case OP_SEQ_EMPTY:
         return BR_FAILED;
     case OP_RE_PLUS:
         SASSERT(num_args == 1);
-        return mk_re_plus(args[0], result);
+        st = mk_re_plus(args[0], result);
+        break;
     case OP_RE_STAR:
         SASSERT(num_args == 1);
         st = mk_re_star(args[0], result);
         break;
     case OP_RE_OPTION:
         SASSERT(num_args == 1);
-        return mk_re_opt(args[0], result);
+        st = mk_re_opt(args[0], result);
+        break;
     case OP_RE_CONCAT:
         if (num_args == 1) {
             result = args[0]; 
-            return BR_DONE;
+            st = BR_DONE;
         }
-        SASSERT(num_args == 2);
-        st = mk_re_concat(args[0], args[1], result); 
+        else {
+            SASSERT(num_args == 2);
+            st = mk_re_concat(args[0], args[1], result); 
+        }
         break;
     case OP_RE_UNION:
         if (num_args == 1) {
-            result = args[0]; return BR_DONE;
+            result = args[0]; 
+            st = BR_DONE;
         }
-        SASSERT(num_args == 2);
-        return mk_re_union(args[0], args[1], result);
+        else {
+            SASSERT(num_args == 2);
+            st = mk_re_union(args[0], args[1], result);
+        }
+        break;
     case OP_RE_RANGE:
         SASSERT(num_args == 2);
-        return mk_re_range(args[0], args[1], result);
+        st = mk_re_range(args[0], args[1], result);
+        break;
     case OP_RE_INTERSECT:
         SASSERT(num_args == 2);
-        return mk_re_inter(args[0], args[1], result);
+        st = mk_re_inter(args[0], args[1], result);
+        break;
     case OP_RE_COMPLEMENT:
         SASSERT(num_args == 1);
-        return mk_re_complement(args[0], result);
+        st = mk_re_complement(args[0], result);
+        break;
     case OP_RE_LOOP:
-        return mk_re_loop(num_args, args, result);
+        st = mk_re_loop(num_args, args, result);
+        break;
     case OP_RE_EMPTY_SET:
         return BR_FAILED;    
     case OP_RE_FULL_SEQ_SET:
@@ -442,54 +455,83 @@ br_status seq_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * con
     case OP_SEQ_CONCAT: 
         if (num_args == 1) {
             result = args[0];
-            return BR_DONE;
+            st = BR_DONE;
         }
-        SASSERT(num_args == 2);
-        return mk_seq_concat(args[0], args[1], result);
+        else {
+            SASSERT(num_args == 2);
+            st = mk_seq_concat(args[0], args[1], result);
+        }
+        break;
     case OP_SEQ_LENGTH:
         SASSERT(num_args == 1);
-        return mk_seq_length(args[0], result);
+        st = mk_seq_length(args[0], result);
+        break;
     case OP_SEQ_EXTRACT:
         SASSERT(num_args == 3);
         st = mk_seq_extract(args[0], args[1], args[2], result);
         break;
     case OP_SEQ_CONTAINS: 
         SASSERT(num_args == 2);
-        return mk_seq_contains(args[0], args[1], result);
+        st = mk_seq_contains(args[0], args[1], result);
+        break;
     case OP_SEQ_AT:
         SASSERT(num_args == 2);
-        return mk_seq_at(args[0], args[1], result); 
+        st = mk_seq_at(args[0], args[1], result); 
+        break;
+#if 0
+    case OP_SEQ_NTH:
+        SASSERT(num_args == 2);
+        return mk_seq_nth(args[0], args[1], result); 
+#endif
     case OP_SEQ_PREFIX: 
         SASSERT(num_args == 2);
-        return mk_seq_prefix(args[0], args[1], result);
+        st = mk_seq_prefix(args[0], args[1], result);
+        break;
     case OP_SEQ_SUFFIX: 
         SASSERT(num_args == 2);
-        return mk_seq_suffix(args[0], args[1], result);
+        st = mk_seq_suffix(args[0], args[1], result);
+        break;
     case OP_SEQ_INDEX:
         if (num_args == 2) {
             expr_ref arg3(m_autil.mk_int(0), m());
             result = m_util.str.mk_index(args[0], args[1], arg3);
-            return BR_REWRITE1;
+            st = BR_REWRITE1;
         }
-        SASSERT(num_args == 3);
-        return mk_seq_index(args[0], args[1], args[2], result);
+        else {
+            SASSERT(num_args == 3);
+            st = mk_seq_index(args[0], args[1], args[2], result);
+        }
+        break;
+    case OP_SEQ_LAST_INDEX:
+        SASSERT(num_args == 2);
+        st = mk_seq_last_index(args[0], args[1], result);
+        break;
     case OP_SEQ_REPLACE:
         SASSERT(num_args == 3);
-        return mk_seq_replace(args[0], args[1], args[2], result);
+        st = mk_seq_replace(args[0], args[1], args[2], result);
+        break;
     case OP_SEQ_TO_RE:
         SASSERT(num_args == 1);
-        return mk_str_to_regexp(args[0], result);
+        st = mk_str_to_regexp(args[0], result);
+        break;
     case OP_SEQ_IN_RE:
         SASSERT(num_args == 2);
-        return mk_str_in_regexp(args[0], args[1], result);
+        st = mk_str_in_regexp(args[0], args[1], result);
+        break;
+    case OP_STRING_LE:
+        SASSERT(num_args == 2);
+        st = mk_str_le(args[0], args[1], result);
+        break;
     case OP_STRING_CONST:
         return BR_FAILED;
     case OP_STRING_ITOS: 
         SASSERT(num_args == 1);
-        return mk_str_itos(args[0], result);
+        st = mk_str_itos(args[0], result);
+        break;
     case OP_STRING_STOI: 
         SASSERT(num_args == 1);
-        return mk_str_stoi(args[0], result);
+        st = mk_str_stoi(args[0], result);
+        break;
     case _OP_STRING_CONCAT:
     case _OP_STRING_PREFIX:
     case _OP_STRING_SUFFIX:
@@ -611,6 +653,7 @@ br_status seq_rewriter::mk_seq_extract(expr* a, expr* b, expr* c, expr_ref& resu
     bool constantBase = m_util.str.is_string(a, s);
     bool constantPos = m_autil.is_numeral(b, pos);
     bool constantLen = m_autil.is_numeral(c, len);
+    bool lengthPos   = m_util.str.is_length(b) || m_autil.is_add(b);
 
     
     // case 1: pos<0 or len<=0
@@ -649,6 +692,46 @@ br_status seq_rewriter::mk_seq_extract(expr* a, expr* b, expr* c, expr_ref& resu
     if (as.empty()) {
         result = m_util.str.mk_empty(m().get_sort(a));
         return BR_DONE;
+    }
+
+    // extract(a + b + c, len(a + b), s) -> extract(c, 0, s)
+    // extract(a + b + c, len(a) + len(b), s) -> extract(c, 0, s)
+    if (lengthPos) {
+        
+        m_lhs.reset();
+        expr_ref_vector lens(m());
+        m_util.str.get_concat(a, m_lhs);
+        if (!get_lengths(b, lens, pos)) {
+            return BR_FAILED;
+        }
+        unsigned i = 0;
+        for (; i < m_lhs.size(); ++i) {
+            expr* lhs = m_lhs.get(i);
+            if (lens.contains(lhs)) {
+                lens.erase(lhs);
+            }
+            else if (m_util.str.is_unit(lhs) && pos.is_pos()) {
+                pos -= rational(1);
+            }
+            else {
+                break;
+            }
+        }
+        if (i == 0) return BR_FAILED;
+        expr_ref t1(m()), t2(m());
+        if (m_lhs.size() == i) {
+            t1 = m_util.str.mk_empty(m().get_sort(a));
+        }
+        else {
+            t1 = m_util.str.mk_concat(m_lhs.size() - i, m_lhs.c_ptr() + i);
+        }
+        t2 = m_autil.mk_int(pos);
+        for (expr* rhs : lens) {
+            t2 = m_autil.mk_add(t2, m_util.str.mk_length(rhs));
+        }
+        result = m_util.str.mk_substr(t1, t2, c);
+        TRACE("seq", tout << result << "\n";);
+        return BR_REWRITE2;
     }
 
     if (!constantPos) {
@@ -696,6 +779,26 @@ br_status seq_rewriter::mk_seq_extract(expr* a, expr* b, expr* c, expr_ref& resu
     result = m_util.str.mk_concat(as.size() - offset, as.c_ptr() + offset);
     result = m_util.str.mk_substr(result, pos1, c);
     return BR_REWRITE3;
+}
+
+bool seq_rewriter::get_lengths(expr* e, expr_ref_vector& lens, rational& pos) {
+    expr* arg = nullptr;
+    rational pos1;
+    if (m_autil.is_add(e)) {
+        for (expr* arg1 : *to_app(e)) {
+            if (!get_lengths(arg1, lens, pos)) return false;
+        }
+    }
+    else if (m_util.str.is_length(e, arg)) {
+        lens.push_back(arg);
+    }
+    else if (m_autil.is_numeral(e, pos1)) {
+        pos += pos1;
+    }
+    else {
+        return false;
+    }
+    return !pos.is_neg();
 }
 
 bool seq_rewriter::cannot_contain_suffix(expr* a, expr* b) {
@@ -875,6 +978,44 @@ br_status seq_rewriter::mk_seq_at(expr* a, expr* b, expr_ref& result) {
     }
     result = m_util.str.mk_empty(m().get_sort(a));
     return BR_DONE;
+}
+
+br_status seq_rewriter::mk_seq_nth(expr* a, expr* b, expr_ref& result) {
+    zstring c;
+    rational r;
+    if (!m_autil.is_numeral(b, r) || !r.is_unsigned()) {
+        return BR_FAILED;
+    }
+    unsigned len = r.get_unsigned();
+
+    expr_ref_vector as(m());
+    m_util.str.get_concat_units(a, as);
+
+    for (unsigned i = 0; i < as.size(); ++i) {
+        expr* a = as.get(i), *u = nullptr;
+        if (m_util.str.is_unit(a, u)) {
+            if (len == i) {
+                result = u;
+                return BR_DONE;
+            }            
+        }
+        else {
+            return BR_FAILED;
+        }
+    }
+    return BR_FAILED;
+}
+
+br_status seq_rewriter::mk_seq_last_index(expr* a, expr* b, expr_ref& result) {
+    zstring s1, s2;
+    bool isc1 = m_util.str.is_string(a, s1);
+    bool isc2 = m_util.str.is_string(b, s2);
+    if (isc1 && isc2) {
+        int idx = s1.last_indexof(s2);
+        result = m_autil.mk_numeral(rational(idx), true);
+        return BR_DONE;
+    }
+    return BR_FAILED;
 }
 
 br_status seq_rewriter::mk_seq_index(expr* a, expr* b, expr* c, expr_ref& result) {
@@ -1159,6 +1300,11 @@ br_status seq_rewriter::mk_seq_suffix(expr* a, expr* b, expr_ref& result) {
     }
 
     return BR_FAILED;
+}
+
+br_status seq_rewriter::mk_str_le(expr* a, expr* b, expr_ref& result) {
+    result = m().mk_not(m_util.str.mk_lex_lt(b, a));
+    return BR_DONE;
 }
 
 br_status seq_rewriter::mk_str_itos(expr* a, expr_ref& result) {

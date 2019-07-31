@@ -1122,12 +1122,13 @@ void fpa2bv_converter::mk_rem(sort * s, expr_ref & x, expr_ref & y, expr_ref & r
     a_lz_ext = m_bv_util.mk_zero_extend(2, a_lz);
     b_lz_ext = m_bv_util.mk_zero_extend(2, b_lz);
 
-    expr_ref exp_diff(m), neg_exp_diff(m), exp_diff_is_neg(m);
+    expr_ref exp_diff(m), neg_exp_diff(m), exp_diff_is_neg(m), exp_diff_ge_zero(m);
     exp_diff = m_bv_util.mk_bv_sub(
         m_bv_util.mk_bv_sub(a_exp_ext, a_lz_ext),
         m_bv_util.mk_bv_sub(b_exp_ext, b_lz_ext));
     neg_exp_diff = m_bv_util.mk_bv_neg(exp_diff);
     exp_diff_is_neg = m_bv_util.mk_sle(exp_diff, m_bv_util.mk_numeral(0, ebits+2));
+    exp_diff_ge_zero = m_bv_util.mk_sle(m_bv_util.mk_numeral(0, m_bv_util.get_bv_size(exp_diff)), exp_diff);
     dbg_decouple("fpa2bv_rem_exp_diff", exp_diff);
 
     // CMW: This creates _huge_ bit-vectors, which is potentially sub-optimal,
@@ -1175,12 +1176,21 @@ void fpa2bv_converter::mk_rem(sort * s, expr_ref & x, expr_ref & y, expr_ref & r
     mk_add(s, rne_bv, rndd, y, rounded_add_y);
 
     expr_ref sub_cnd(m), add_cnd(m);
-    sub_cnd = m.mk_and(y_half_is_nz,
+    sub_cnd = m.mk_and(exp_diff_ge_zero,
+              m.mk_and(y_half_is_nz,
                 m.mk_or(m.mk_and(y_is_pos, r_ge_y_half),
-                        m.mk_and(y_is_neg, r_le_y_half)));
-    add_cnd = m.mk_and(y_half_is_nz,
+                        m.mk_and(y_is_neg, r_le_y_half))));
+    add_cnd = m.mk_and(exp_diff_ge_zero,
+              m.mk_and(y_half_is_nz,
                 m.mk_or(m.mk_and(y_is_pos, r_lt_ny_half),
-                    m.mk_and(y_is_neg, r_gt_ny_half)));
+                        m.mk_and(y_is_neg, r_gt_ny_half))));
+
+    dbg_decouple("fpa2bv_rem_y_half", y_half);
+    dbg_decouple("fpa2bv_rem_sub_cnd", sub_cnd);
+    dbg_decouple("fpa2bv_rem_add_cnd", add_cnd);
+    dbg_decouple("fpa2bv_rem_rounded_add_y", rounded_add_y);
+    dbg_decouple("fpa2bv_rem_rounded_sub_y", rounded_sub_y);
+    dbg_decouple("fpa2bv_rem_rndd", rndd);
 
     mk_ite(add_cnd, rounded_add_y, rndd, v7);
     mk_ite(sub_cnd, rounded_sub_y, v7, v7);
@@ -1986,15 +1996,17 @@ void fpa2bv_converter::mk_round_to_integral(sort * s, expr_ref & rm, expr_ref & 
 
     SASSERT(is_well_sorted(m, v4));
 
-    // exponent >= sbits-1
+    // exponent >= sbits-1 -> x
     expr_ref exp_is_large(m);
-    exp_is_large = m_bv_util.mk_sle(m_bv_util.mk_numeral(sbits-1, ebits), a_exp);
+    exp_is_large = log2(sbits-1)+1 <= ebits-1 ?
+                        m_bv_util.mk_sle(m_bv_util.mk_numeral(sbits-1, ebits), a_exp) :
+                        m.mk_false();
     dbg_decouple("fpa2bv_r2i_exp_is_large", exp_is_large);
     c5 = exp_is_large;
     v5 = x;
 
     // Actual conversion with rounding.
-    // x.exponent >= 0 && x.exponent < x.sbits - 1
+    // exponent >= 0 && exponent < sbits - 1
 
     expr_ref res_sgn(m), res_sig(m), res_exp(m);
     res_sgn = a_sgn;
@@ -2070,7 +2082,6 @@ void fpa2bv_converter::mk_round_to_integral(sort * s, expr_ref & rm, expr_ref & 
     m_simp.mk_ite(c53, v53, res_sig, res_sig);
     m_simp.mk_ite(c52, v52, res_sig, res_sig);
     m_simp.mk_ite(c51, v51, res_sig, res_sig);
-    res_sig = m_bv_util.mk_zero_extend(1, m_bv_util.mk_concat(res_sig, m_bv_util.mk_numeral(0, 3))); // rounding bits are all 0.
 
     SASSERT(m_bv_util.get_bv_size(res_exp) == ebits);
     SASSERT(m_bv_util.get_bv_size(shift) == sbits);
@@ -2082,11 +2093,37 @@ void fpa2bv_converter::mk_round_to_integral(sort * s, expr_ref & rm, expr_ref & 
     res_exp = m_bv_util.mk_bv_add(m_bv_util.mk_zero_extend(2, res_exp), e_shift);
 
     SASSERT(m_bv_util.get_bv_size(res_sgn) == 1);
-    SASSERT(m_bv_util.get_bv_size(res_sig) == sbits + 4);
+    SASSERT(m_bv_util.get_bv_size(res_sig) == sbits);
     SASSERT(m_bv_util.get_bv_size(res_exp) == ebits + 2);
 
-    // CMW: We use the rounder for normalization.
-    round(s, rm, res_sgn, res_sig, res_exp, v6);
+    // Renormalize
+    expr_ref zero_e2(m), min_exp(m), sig_lz(m), max_exp_delta(m), sig_lz_capped(m), renorm_delta(m);
+    zero_e2 = m_bv_util.mk_numeral(0, ebits+2);
+    mk_min_exp(ebits, min_exp);
+    min_exp = m_bv_util.mk_sign_extend(2, min_exp);
+    mk_leading_zeros(res_sig, ebits+2, sig_lz);
+    max_exp_delta = m_bv_util.mk_bv_sub(res_exp, min_exp);
+    sig_lz_capped = m.mk_ite(m_bv_util.mk_sle(sig_lz, max_exp_delta), sig_lz, max_exp_delta);
+    renorm_delta = m.mk_ite(m_bv_util.mk_sle(zero_e2, sig_lz_capped), sig_lz_capped, zero_e2);
+    SASSERT(m_bv_util.get_bv_size(renorm_delta) == ebits + 2);
+    res_exp = m_bv_util.mk_bv_sub(res_exp, renorm_delta);
+    res_sig = m_bv_util.mk_bv_shl(res_sig, m_bv_util.mk_zero_extend(sbits-ebits-2, renorm_delta));
+    dbg_decouple("fpa2bv_r2i_renorm_delta", renorm_delta);
+
+    res_exp = m_bv_util.mk_extract(ebits-1, 0, res_exp);
+    mk_bias(res_exp, res_exp);
+    res_sig = m_bv_util.mk_extract(sbits-2, 0, res_sig);
+    v6 = m_util.mk_fp(res_sgn, res_exp, res_sig);
+
+    dbg_decouple("fpa2bv_r2i_res_sgn", res_sgn);
+    dbg_decouple("fpa2bv_r2i_res_sig", res_sig);
+    dbg_decouple("fpa2bv_r2i_res_exp", res_exp);
+
+    dbg_decouple("fpa2bv_r2i_c1", c1);
+    dbg_decouple("fpa2bv_r2i_c2", c2);
+    dbg_decouple("fpa2bv_r2i_c3", c3);
+    dbg_decouple("fpa2bv_r2i_c4", c4);
+    dbg_decouple("fpa2bv_r2i_c5", c5);
 
     // And finally, we tie them together.
     mk_ite(c5, v5, v6, result);
@@ -3300,11 +3337,11 @@ void fpa2bv_converter::mk_to_bv(func_decl * f, unsigned num, expr * const * args
         ll = m_bv_util.mk_sign_extend(3, m_bv_util.mk_concat(bv1, m_bv_util.mk_numeral(0, bv_sz-1)));
         ul = m_bv_util.mk_zero_extend(4, m_bv_util.mk_bv_neg(m_bv_util.mk_numeral(1, bv_sz-1)));
         ovfl = m.mk_or(ovfl, m_bv_util.mk_sle(pre_rounded, m_bv_util.mk_bv_neg(m_bv_util.mk_numeral(1, bv_sz + 3))));
+        pre_rounded = m.mk_ite(x_is_neg, m_bv_util.mk_bv_neg(pre_rounded), pre_rounded);
         in_range = m.mk_and(m.mk_not(ovfl),
                             m_bv_util.mk_sle(ll, pre_rounded),
                             m_bv_util.mk_sle(pre_rounded, ul));
         dbg_decouple("fpa2bv_to_bv_in_range_ll", ll);
-        pre_rounded = m.mk_ite(x_is_neg, m_bv_util.mk_bv_neg(pre_rounded), pre_rounded);
     }
     dbg_decouple("fpa2bv_to_bv_in_range_ovfl", ovfl);
     dbg_decouple("fpa2bv_to_bv_in_range_ul", ul);
