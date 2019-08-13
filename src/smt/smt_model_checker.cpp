@@ -49,6 +49,7 @@ namespace smt {
         m_iteration_idx(0),
         m_has_rec_fun(false),
         m_curr_model(nullptr),
+        m_fresh_exprs(m),
         m_pinned_exprs(m) {
     }
 
@@ -76,6 +77,18 @@ namespace smt {
         expr * t = nullptr;
         m_value2expr.find(val, t);
         return t;
+    }
+
+    expr * model_checker::get_type_compatible_term(expr * val) {
+        for (expr* f : m_fresh_exprs) {
+            if (m.get_sort(f) == m.get_sort(val)) {
+                return f;
+            }
+        }
+        app* fresh_term = m.mk_fresh_const("sk", m.get_sort(val));
+        m_context->ensure_internalized(fresh_term);
+        m_fresh_exprs.push_back(fresh_term);
+        return fresh_term;
     }
 
     void model_checker::init_value2expr() {
@@ -207,8 +220,7 @@ namespace smt {
                 }
             }
             if (contains_model_value(sk_value)) {
-                TRACE("model_checker", tout << "value is private to model: " << sk_value << "\n";);
-                return false;
+                sk_value = get_type_compatible_term(sk_value);
             }
             func_decl * f = nullptr;
             if (autil.is_as_array(sk_value, f) && cex->get_func_interp(f)) {

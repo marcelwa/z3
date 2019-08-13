@@ -87,9 +87,13 @@ namespace smt {
         var_data_full * d_full     = m_var_data_full[v];
         d_full->m_parent_maps.push_back(s);
         m_trail_stack.push(push_back_trail<theory_array, enode *, false>(d_full->m_parent_maps));
-        if (!m_params.m_array_weak && !m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
+        if (!m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
             for (enode * n : d->m_parent_selects) {
                 if (!m_params.m_array_cg || n->is_cgr()) {
+                    if (m_params.m_array_weak) {
+                        found_unsupported_op(s);
+                        break;
+                    }
                     instantiate_select_map_axiom(n, s);
                 }                
             }
@@ -100,14 +104,16 @@ namespace smt {
     // set set_prop_upward on root and recursively on children if necessary.
     // 
     void theory_array_full::set_prop_upward(theory_var v) {
-        if (m_params.m_array_weak)
-            return;
         v = find(v);
         var_data * d = m_var_data[v];
         if (!d->m_prop_upward) {
             m_trail_stack.push(reset_flag_trail<theory_array>(d->m_prop_upward));
             d->m_prop_upward = true;
             TRACE("array", tout << "#" << v << "\n";);
+            if (m_params.m_array_weak) {
+                found_unsupported_op(v);
+                return;
+            }
             if (!m_params.m_array_delay_exp_axiom) {
                 instantiate_axiom2b_for(v);
                 instantiate_axiom_map_for(v);
@@ -134,8 +140,8 @@ namespace smt {
             set_prop_upward(n->get_arg(0)->get_th_var(get_id()));
         }
         else if (is_map(n)) {
-            for (unsigned i = 0; i < n->get_num_args(); ++i) {
-                set_prop_upward(n->get_arg(i)->get_th_var(get_id()));
+            for (enode* arg : enode::args(n)) {
+                set_prop_upward(arg->get_th_var(get_id()));
             }
         }
     }
@@ -355,8 +361,13 @@ namespace smt {
             instantiate_default_store_axiom(store);
         }        
 
-        if (!m_params.m_array_weak && !m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
-            instantiate_parent_stores_default(v);
+        if (!m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
+            if (m_params.m_array_weak) {
+                found_unsupported_op(v);
+            }
+            else {
+                instantiate_parent_stores_default(v);
+            }
         }
     }
 
@@ -376,10 +387,14 @@ namespace smt {
             SASSERT(is_map(map));
             instantiate_select_map_axiom(s, map);
         }
-        if (!m_params.m_array_weak && !m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
+        if (!m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
             for (enode * map : d_full->m_parent_maps) {
                 SASSERT(is_map(map));
                 if (!m_params.m_array_cg || map->is_cgr()) {
+                    if (m_params.m_array_weak) {
+                        found_unsupported_op(s);
+                        break;
+                    }
                     instantiate_select_map_axiom(s, map);
                 }
             }
@@ -466,12 +481,12 @@ namespace smt {
               tout << mk_bounded_pp(sl->get_owner(), get_manager()) << "\n";);
         unsigned num_args   = select->get_num_args();
         unsigned num_arrays = map->get_num_args();
-        ptr_buffer<expr>       args1, args2;
+        ptr_buffer<expr> args1, args2;
         vector<ptr_vector<expr> > args2l;
         args1.push_back(map);
-        for (unsigned j = 0; j < num_arrays; ++j) {
+        for (expr* ar : *map) {
             ptr_vector<expr> arg;
-            arg.push_back(map->get_arg(j));
+            arg.push_back(ar);
             args2l.push_back(arg);
         }
         for (unsigned i = 1; i < num_args; ++i) {
@@ -522,8 +537,8 @@ namespace smt {
         func_decl* f = to_func_decl(map->get_decl()->get_parameter(0).get_ast());
         SASSERT(map->get_num_args() == f->get_arity());
         ptr_buffer<expr> args2;
-        for (unsigned i = 0; i < map->get_num_args(); ++i) {
-            args2.push_back(mk_default(map->get_arg(i)));
+        for (expr* arg : *map) {
+            args2.push_back(mk_default(arg));
         }
 
         expr_ref def2(m.mk_app(f, args2.size(), args2.c_ptr()), m);
@@ -748,8 +763,11 @@ namespace smt {
                 var_data * d = m_var_data[v];
                 if (d->m_prop_upward && instantiate_axiom_map_for(v))
                     r = FC_CONTINUE;
-                if (d->m_prop_upward && !m_params.m_array_weak) {
-                    if (instantiate_parent_stores_default(v))
+                if (d->m_prop_upward) {
+                    if (m_params.m_array_weak) {
+                        found_unsupported_op(v);
+                    }
+                    else if (instantiate_parent_stores_default(v))
                         r = FC_CONTINUE;
                 }
             }

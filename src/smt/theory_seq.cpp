@@ -274,7 +274,6 @@ theory_seq::theory_seq(ast_manager& m, theory_seq_params const & params):
     m_overlap(m),
     m_overlap2(m),
     m_len_prop_lvl(-1),
-    m_internal_nth_es(m),
     m_factory(nullptr),
     m_exclude(m),
     m_axioms(m),
@@ -1985,16 +1984,9 @@ bool theory_seq::propagate_is_conc(expr* e, expr* conc) {
 
 bool theory_seq::is_unit_nth(expr* e) const {
     expr *s = nullptr;
-    return m_util.str.is_unit(e, s) && is_nth(s);
+    return m_util.str.is_unit(e, s) && m_util.str.is_nth_i(s);
 }
 
-bool theory_seq::is_nth(expr* e) const {
-    return m_util.str.is_nth(e);
-}
-
-bool theory_seq::is_nth(expr* e, expr*& e1, expr*& e2) const {
-    return m_util.str.is_nth(e, e1, e2);
-}
 
 bool theory_seq::is_tail(expr* e, expr*& s, unsigned& idx) const {
     rational r;
@@ -2017,14 +2009,8 @@ bool theory_seq::is_post(expr* e, expr*& s, expr*& i) {
     return is_skolem(m_post, e) && (s = to_app(e)->get_arg(0), i = to_app(e)->get_arg(1), true);
 }
 
-
-
 expr_ref theory_seq::mk_nth(expr* s, expr* idx) {
-    expr_ref result(m_util.str.mk_nth(s, idx), m);
-    if (!m_internal_nth_table.contains(result)) {
-        m_internal_nth_table.insert(result);
-        m_internal_nth_es.push_back(result);
-    }
+    expr_ref result(m_util.str.mk_nth_i(s, idx), m);
     return result;
 }
 
@@ -2113,12 +2099,14 @@ bool theory_seq::check_extensionality() {
                 m_lhs.reset(); m_rhs.reset();
                 bool change = false;
                 if (!m_seq_rewrite.reduce_eq(e1, e2, m_lhs, m_rhs, change)) {
+                    TRACE("seq", tout << "exclude " << mk_pp(o1, m) << " " << mk_pp(o2, m) << "\n";);
                     m_exclude.update(o1, o2);
                     continue;
                 }
                 bool excluded = false;
                 for (unsigned j = 0; !excluded && j < m_lhs.size(); ++j) {
-                    if (m_exclude.contains(m_lhs[j].get(), m_rhs[j].get())) {
+                    if (m_exclude.contains(m_lhs.get(j), m_rhs.get(j))) {
+                        TRACE("seq", tout << "excluded " << j << " " << m_lhs << " " << m_rhs << "\n";);
                         excluded = true;
                     }
                 }
@@ -2443,7 +2431,7 @@ bool theory_seq::solve_nth_eq(expr_ref_vector const& ls, expr_ref_vector const& 
     for (unsigned i = 0; i < rs.size(); ++i) {
         unsigned k = 0;
         expr* ru = nullptr, *r = nullptr;
-        if (m_util.str.is_unit(rs.get(i), ru) && m_util.str.is_nth(ru, r, k) && k == i && r == l) {
+        if (m_util.str.is_unit(rs.get(i), ru) && m_util.str.is_nth_i(ru, r, k) && k == i && r == l) {
             continue;
         }
         return false;
@@ -2459,10 +2447,6 @@ bool theory_seq::solve_unit_eq(expr_ref_vector const& l, expr_ref_vector const& 
     if (r.size() == 1 && is_var(r[0]) && !occurs(r[0], l) && add_solution(r[0], mk_concat(l, m.get_sort(r[0])), deps)) {
         return true;
     }
-//    if (l.size() == 1 && r.size() == 1 && l[0] != r[0] && is_nth(l[0]) && add_solution(l[0], r[0], deps))
-//        return true;
-//    if (l.size() == 1 && r.size() == 1 && l[0] != r[0] && is_nth(r[0]) && add_solution(r[0], l[0], deps))
-//        return true;
 
     return false;
 }
@@ -2491,10 +2475,6 @@ bool theory_seq::solve_unit_eq(expr* l, expr* r, dependency* deps) {
     if (is_var(r) && !occurs(r, l) && add_solution(r, l, deps)) {
         return true;
     }
-//    if (is_nth(l) && !occurs(l, r) && add_solution(l, r, deps))
-//        return true;
-//    if (is_nth(r) && !occurs(r, l) && add_solution(r, l, deps))
-//        return true;
 
     return false;
 }
@@ -2524,8 +2504,14 @@ bool theory_seq::occurs(expr* a, expr* b) {
             m_todo.push_back(e1);
             m_todo.push_back(e2);
         }
+        else if (m_util.str.is_unit(b, e1)) {
+            m_todo.push_back(e1);
+        }
+        else if (m_util.str.is_nth_i(b, e1, e2)) {
+            m_todo.push_back(e1);
+        }
     }
-     return false;
+    return false;
 }
 
 
@@ -2536,7 +2522,7 @@ bool theory_seq::is_var(expr* a) const {
         !m_util.str.is_empty(a)  &&
         !m_util.str.is_string(a) &&
         !m_util.str.is_unit(a) &&
-        !m_util.str.is_itos(a) && 
+        !m_util.str.is_itos(a) &&
         // !m_util.str.is_extract(a) && 
         !m.is_ite(a);
 }
@@ -3981,7 +3967,7 @@ public:
         }
     }
 
-    app * mk_value(model_generator & mg, ptr_vector<expr> & values) override {
+    app * mk_value(model_generator & mg, expr_ref_vector const & values) override {
         SASSERT(values.size() == m_dependencies.size());
         expr_ref_vector args(th.m);
         unsigned j = 0, k = 0;
@@ -4432,7 +4418,7 @@ void theory_seq::deque_axiom(expr* n) {
     else if (m_util.str.is_at(n)) {
         add_at_axiom(n);
     }
-    else if (m_util.str.is_nth(n)) {
+    else if (m_util.str.is_nth_i(n)) {
         add_nth_axiom(n);
     }
     else if (m_util.str.is_string(n)) {
@@ -5182,8 +5168,8 @@ void theory_seq::add_at_axiom(expr* e) {
     }
     else {
         expr_ref len_e = mk_len(e);
-        expr_ref x = mk_skolem(m_pre, s, i);
-        expr_ref y = mk_skolem(m_tail, s, i);
+        expr_ref x =     mk_skolem(m_pre, s, i);
+        expr_ref y =     mk_skolem(m_tail, s, i);
         expr_ref xey   = mk_concat(x, e, y);
         expr_ref len_x = mk_len(x);
         add_axiom(~i_ge_0, i_ge_len_s, mk_seq_eq(s, xey));
@@ -5199,16 +5185,19 @@ void theory_seq::add_nth_axiom(expr* e) {
     expr* s = nullptr, *i = nullptr;
     rational n;
     zstring str;
-    VERIFY(m_util.str.is_nth(e, s, i));
+    VERIFY(m_util.str.is_nth_i(e, s, i));
     if (m_util.str.is_string(s, str) && m_autil.is_numeral(i, n) && n.is_unsigned() && n.get_unsigned() < str.length()) {
         app_ref ch(m_util.str.mk_char(str[n.get_unsigned()]), m);
         add_axiom(mk_eq(ch, e, false));
     }
-    else if (!m_internal_nth_table.contains(e)) {
+    else {
         expr_ref zero(m_autil.mk_int(0), m);
         literal i_ge_0 = mk_simplified_literal(m_autil.mk_ge(i, zero));
         literal i_ge_len_s = mk_simplified_literal(m_autil.mk_ge(mk_sub(i, mk_len(s)), zero));
-        add_axiom(~i_ge_0, i_ge_len_s, mk_eq(m_util.str.mk_unit(e), m_util.str.mk_at(s, i), false));
+        // at(s,i) = [nth(s,i)]
+        expr_ref rhs(s, m);
+        if (!m_util.str.is_at(s)) rhs = m_util.str.mk_at(s, i);
+        add_axiom(~i_ge_0, i_ge_len_s, mk_eq(m_util.str.mk_unit(e), rhs, false));        
     }
 }
 
@@ -5540,9 +5529,6 @@ void theory_seq::assign_eh(bool_var v, bool is_true) {
     else if (m_util.str.is_in_re(e)) {
         propagate_in_re(e, is_true);
     }
-    else if (is_skolem(symbol("seq.split"), e)) {
-        // propagate equalities
-    }
     else if (is_skolem(symbol("seq.is_digit"), e)) {
         // no-op
     }
@@ -5552,7 +5538,10 @@ void theory_seq::assign_eh(bool_var v, bool is_true) {
     else if (m_util.str.is_lt(e) || m_util.str.is_le(e)) {
         m_lts.push_back(e);
     }
-    else if (is_nth(e)) {
+    else if (m_util.str.is_nth_i(e) || m_util.str.is_nth_u(e)) {
+        // no-op
+    }
+    else if (m_util.is_skolem(e)) {
         // no-op
     }
     else {
@@ -5682,7 +5671,6 @@ void theory_seq::push_scope_eh() {
     m_nqs.push_scope();
     m_ncs.push_scope();
     m_lts.push_scope();
-    m_internal_nth_lim.push_back(m_internal_nth_es.size());
 }
 
 void theory_seq::pop_scope_eh(unsigned num_scopes) {
@@ -5704,12 +5692,6 @@ void theory_seq::pop_scope_eh(unsigned num_scopes) {
         m_len_prop_lvl = ctx.get_scope_level();
         m_len_offset.reset();
     }
-    unsigned old_sz = m_internal_nth_lim[m_internal_nth_lim.size() - num_scopes];
-    for (unsigned i = m_internal_nth_es.size(); i-- > old_sz; ) {
-        m_internal_nth_table.erase(m_internal_nth_es.get(i));
-    }
-    m_internal_nth_es.shrink(old_sz);
-    m_internal_nth_lim.shrink(m_internal_nth_lim.size() - num_scopes);
 }
 
 void theory_seq::restart_eh() {
@@ -5720,7 +5702,7 @@ void theory_seq::relevant_eh(app* n) {
         m_util.str.is_replace(n) ||
         m_util.str.is_extract(n) ||
         m_util.str.is_at(n) ||
-        m_util.str.is_nth(n) ||
+        m_util.str.is_nth_i(n) ||
         m_util.str.is_empty(n) ||
         m_util.str.is_string(n) ||
         m_util.str.is_itos(n) || 
