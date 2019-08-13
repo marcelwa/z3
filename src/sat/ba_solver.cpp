@@ -372,7 +372,7 @@ namespace sat {
         SASSERT(s().at_base_lvl());
         if (p.lit() != null_literal && value(p.lit()) == l_false) {
             TRACE("ba", tout << "pb: flip sign " << p << "\n";);
-            IF_VERBOSE(0, verbose_stream() << "sign is flipped " << p << "\n";);
+            // IF_VERBOSE(0, verbose_stream() << "sign is flipped " << p << "\n";);
             return;
         }
         bool nullify = p.lit() != null_literal && value(p.lit()) == l_true;
@@ -424,7 +424,7 @@ namespace sat {
                 s().assign_scoped(~p.lit());
             }
             else {
-                IF_VERBOSE(0, verbose_stream() << "unsat during simplification\n";);
+                // IF_VERBOSE(0, verbose_stream() << "unsat during simplification\n";);
                 s().set_conflict(justification(0));
             }
             remove_constraint(p, "is false");
