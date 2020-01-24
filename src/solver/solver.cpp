@@ -26,6 +26,7 @@ Notes:
 #include "solver/solver.h"
 #include "solver/solver_params.hpp"
 #include "model/model_evaluator.h"
+#include "model/model_params.hpp"
 
 
 unsigned solver::get_num_assertions() const {
@@ -226,7 +227,10 @@ void solver::assert_expr(expr* f, expr* t) {
 
 
 void solver::collect_param_descrs(param_descrs & r) {
-    r.insert("solver.enforce_model_conversion", CPK_BOOL, "(default: false) enforce model conversion when asserting formulas");
+    solver_params sp(m_params);
+    sp.collect_param_descrs(r);
+    model_params mp(m_params);
+    mp.collect_param_descrs(r);
     insert_timeout(r);
     insert_rlimit(r);
     insert_max_memory(r);
@@ -340,7 +344,7 @@ lbool solver::check_sat(unsigned num_assumptions, expr * const * assumptions) {
 void solver::dump_state(unsigned sz, expr* const* assumptions) {
     if ((symbol::null != m_cancel_backup_file) &&
         !m_cancel_backup_file.is_numerical() && 
-        m_cancel_backup_file.c_ptr() &&
+        !m_cancel_backup_file.is_null() &&
         m_cancel_backup_file.bare_str()[0]) {
         std::string file = m_cancel_backup_file.str();
         std::ofstream ous(file);

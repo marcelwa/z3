@@ -107,7 +107,7 @@ public:
 
     int64_t get_int64() const { return m().get_int64(m_val); }
     
-    bool is_unsigned() const { return is_uint64() && (get_uint64() < (1ull << 32)); }
+    bool is_unsigned() const { return is_uint64() && (get_uint64() < (1ull << 32ull)); }
 
     unsigned get_unsigned() const {
         SASSERT(is_unsigned());
@@ -421,6 +421,8 @@ public:
         }
         return num_bits;
     }
+
+    static bool limit_denominator(rational &num, rational const& limit);
 };
 
 inline bool operator!=(rational const & r1, rational const & r2) { 

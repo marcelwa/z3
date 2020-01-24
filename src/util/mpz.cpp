@@ -46,18 +46,18 @@ Revision History:
 #define LEHMER_GCD
 #endif
 
-#ifdef _WINDOWS
+
+#if defined(_WINDOWS) && !defined(_M_ARM) && !defined(_M_ARM64)
 // This is needed for _tzcnt_u32 and friends.
 #include <immintrin.h>
+#define _trailing_zeros32(X) _tzcnt_u32(X)
 #endif
 
 #if defined(__GNUC__)
 #define _trailing_zeros32(X) __builtin_ctz(X)
-#else
-#define _trailing_zeros32(X) _tzcnt_u32(X)
 #endif
 
-#if defined(__LP64__) || defined(_WIN64)
+#if (defined(__LP64__) || defined(_WIN64)) && !defined(_M_ARM) && !defined(_M_ARM64)
  #if defined(__GNUC__)
  #define _trailing_zeros64(X) __builtin_ctzll(X)
  #else
@@ -69,6 +69,18 @@ inline uint64_t _trailing_zeros64(uint64_t x) {
     for (; 0 == (x & 1) && r < 64; ++r, x >>= 1);
     return r;
 }
+
+#if defined(_WINDOWS) && !defined(_M_ARM) && !defined(_M_ARM64)
+// _trailing_zeros32 already defined using intrinsics
+#elif defined(__GNUC__)
+// _trailing_zeros32 already defined using intrinsics
+#else
+inline uint32_t _trailing_zeros32(uint32_t x) {
+    uint32_t r = 0;
+    for (; 0 == (x & 1) && r < 32; ++r, x >>= 1);
+    return r;
+}
+#endif
 #endif
 
 
@@ -85,36 +97,10 @@ unsigned u_gcd(unsigned u, unsigned v) {
     if (u == v) return u << shift;
     do {
         v >>= _trailing_zeros32(v);        
-#if 1
         unsigned diff = u - v;
         unsigned mdiff = diff & (unsigned)((int)diff >> 31);
         u = v + mdiff; // min
         v = diff - 2 * mdiff;   // if v <= u: u - v, if v > u: v - u = u - v - 2 * (u - v)
-#endif
-#if 0
-        unsigned t = _bit_max(u, v);
-        u = _bit_min(u, v);
-        v = t;
-        v -= u;        
-#endif
-#if 0
-        unsigned t = std::max(u, v);
-        u = std::min(u,v);
-        v = t;
-        v -= u;        
-#endif
-#if 0
-        if (u > v) std::swap(u, v);
-        v -= u;        
-#endif
-#if 0
-        unsigned d1 = u - v;
-        unsigned d2 = v - u;
-        unsigned md21 = d2 & (unsigned)((int)d1 >> 31);
-        unsigned md12 = d1 & (unsigned)((int)d2 >> 31);
-        u = _bit_min(u, v);
-        v = md12 | md21;
-#endif
     }
     while (v != 0);
     return u << shift;
@@ -272,7 +258,12 @@ void mpz_manager<SYNCH>::set_big_i64(mpz & c, int64_t v) {
     c.m_kind = mpz_large;
     SASSERT(capacity(c) >= m_init_cell_capacity);
     uint64_t _v;
-    if (v < 0) {
+    if (v == std::numeric_limits<int64_t>::min()) {
+        // min-int is even
+        _v = -(v/2);
+        c.m_val = -1;
+    }
+    else if (v < 0) {
         _v = -v;
         c.m_val = -1;
     }
@@ -298,14 +289,15 @@ void mpz_manager<SYNCH>::set_big_i64(mpz & c, int64_t v) {
     }
     c.m_kind = mpz_large;
     uint64_t _v;
-    bool sign;
-    if (v < 0) {
+    bool sign = v < 0;
+    if (v == std::numeric_limits<int64_t>::min()) {
+        _v = -(v/2);
+    }
+    else if (v < 0) {
         _v   = -v;
-        sign = true;
     }
     else {
         _v   = v;
-        sign = false;
     }
     mpz_set_ui(*c.m_ptr, static_cast<unsigned>(_v));
     MPZ_BEGIN_CRITICAL();
@@ -316,6 +308,9 @@ void mpz_manager<SYNCH>::set_big_i64(mpz & c, int64_t v) {
     if (sign)
         mpz_neg(*c.m_ptr, *c.m_ptr);
 #endif
+    if (v == std::numeric_limits<int64_t>::min()) {
+        big_add(c, c, c);
+    }
 }
 
 template<bool SYNCH>
@@ -1767,8 +1762,8 @@ void mpz_manager<SYNCH>::display_hex(std::ostream & out, mpz const & a, unsigned
 }
 
 void display_binary_data(std::ostream &out, unsigned val, unsigned numBits) {
-    SASSERT(numBits <= sizeof(unsigned)*8);
-    for (int shift = numBits-1; shift >= 0; --shift) {
+	for (unsigned shift = numBits; shift-- > 32; ) out << "0";
+    for (unsigned shift = std::min(32u, numBits); shift-- > 0; ) {
         if (val & (1 << shift)) {
             out << "1";
         } else {
@@ -2021,8 +2016,9 @@ void mpz_manager<SYNCH>::machine_div2k(mpz & a, unsigned k) {
         return;
     if (is_small(a)) {
         if (k < 32) {
-            int twok = 1 << k;
-            a.m_val /= twok;
+            int64_t twok = 1ull << ((int64_t)k);
+            int64_t val = a.m_val;
+            a.m_val = (int)(val/twok);
         }
         else {
             a.m_val = 0;

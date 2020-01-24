@@ -75,6 +75,8 @@ namespace smt {
 
         void reset_eh() override;
 
+        void apply_sort_cnstr(enode * n, sort * s) override;
+
         void init_model(model_generator & m) override;
         
         model_value_proc * mk_value(enode * n, model_generator & mg) override;
@@ -85,8 +87,6 @@ namespace smt {
         bool get_upper(enode* n, expr_ref& r);
         bool get_lower(enode* n, rational& r, bool& is_strict);
         bool get_upper(enode* n, rational& r, bool& is_strict);
-
-        bool validate_eq_in_model(theory_var v1, theory_var v2, bool is_true) const override;
                 
         void display(std::ostream & out) const override;
         

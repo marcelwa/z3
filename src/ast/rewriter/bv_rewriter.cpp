@@ -2024,13 +2024,24 @@ br_status bv_rewriter::mk_bv_nand(unsigned num, expr * const * args, expr_ref & 
     return BR_REWRITE2;
 }
 
-br_status bv_rewriter::mk_bv_nor(unsigned num, expr * const * args, expr_ref & result) {
-    result = m_util.mk_bv_not(m_util.mk_bv_or(num, args));
+br_status bv_rewriter::mk_bv_nor(unsigned num_args, expr * const * args, expr_ref & result) {
+    result = m_util.mk_bv_not(m_util.mk_bv_or(num_args, args));
     return BR_REWRITE2;
 }
 
 br_status bv_rewriter::mk_bv_xnor(unsigned num_args, expr * const * args, expr_ref & result) {
-    result = m_util.mk_bv_not(m_util.mk_bv_xor(num_args, args));
+    switch (num_args) {
+    case 0: result = m().mk_true(); break;
+    case 1: result = m_util.mk_bv_not(args[0]); break;
+    case 2: result = m_util.mk_bv_not(m_util.mk_bv_xor(num_args, args)); break;
+    default:
+        mk_bv_xnor(2, args, result);
+        for (unsigned i = 2; i < num_args; ++i) {
+            expr* _args[2] = { result, args[i] };
+            mk_bv_xnor(2, _args, result);
+        }
+        return BR_REWRITE_FULL;
+    }
     return BR_REWRITE2;
 }
 
@@ -2244,6 +2255,10 @@ br_status bv_rewriter::mk_bv_mul(unsigned num_args, expr * const * args, expr_re
 br_status bv_rewriter::mk_bit2bool(expr * n, int idx, expr_ref & result) {
     rational v, bit;
     unsigned sz = 0;
+    if (m_util.is_mkbv(n)) {
+        result = to_app(n)->get_arg(idx);
+        return BR_DONE;
+    }
     if (!is_numeral(n, v, sz)) 
         return BR_FAILED;
     if (idx < 0 || idx >= static_cast<int>(sz)) 

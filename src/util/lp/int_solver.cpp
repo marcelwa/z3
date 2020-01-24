@@ -144,6 +144,8 @@ lia_move int_solver::mk_gomory_cut( unsigned inf_col, const row_strip<mpq> & row
 lia_move int_solver::proceed_with_gomory_cut(unsigned j) {
     const row_strip<mpq>& row = m_lar_solver->get_row(row_of_basic_column(j));
 
+    SASSERT(m_lar_solver->row_is_correct(row_of_basic_column(j)));
+    
     if (!is_gomory_cut_target(row)) 
         return create_branch_on_column(j);
 
@@ -153,7 +155,7 @@ lia_move int_solver::proceed_with_gomory_cut(unsigned j) {
 
 
 unsigned int_solver::row_of_basic_column(unsigned j) const {
-    return m_lar_solver->m_mpq_lar_core_solver.m_r_heading[j];
+    return m_lar_solver->row_of_basic_column(j);
 }
 
 // template <typename T>
@@ -285,6 +287,7 @@ lia_move int_solver::run_gcd_test() {
         TRACE("int_solver", tout << "gcd-test " << settings().st().m_gcd_calls << "\n";);
         if (!gcd_test()) {
             settings().st().m_gcd_conflicts++;
+            TRACE("gcd_test", tout << "gcd conflict\n";);
             return lia_move::conflict;
         }
     }
@@ -402,31 +405,35 @@ lia_move int_solver::hnf_cut() {
 }
 
 lia_move int_solver::check() {
+    ++m_number_of_calls;
+    m_lar_solver->restore_rounded_columns();
+    SASSERT(m_lar_solver->ax_is_correct());
     if (!has_inf_int()) return lia_move::sat;
+
+#define CHECK_RET(fn)                                                   \
+    r = fn;                                                             \
+    if (r != lia_move::undef) { TRACE("int_solver", tout << #fn << "\n";); return r; }
 
     m_t.clear();
     m_k.reset();
     m_ex.clear();
     m_upper = false;
-    lia_move r = run_gcd_test();
-    if (r != lia_move::undef) return r;
+    lia_move r;
+
+    CHECK_RET(run_gcd_test());
 
     check_return_helper pc(m_lar_solver, r);
 
-    if(settings().m_int_pivot_fixed_vars_from_basis)
+    if (settings().m_int_pivot_fixed_vars_from_basis)
         m_lar_solver->pivot_fixed_vars_from_basis();
 
-    r = patch_nbasic_columns();
-    if (r != lia_move::undef) return r;
+    CHECK_RET(patch_nbasic_columns());
     ++m_number_of_calls;
-    r = find_cube();
-    if (r != lia_move::undef) return r;
-    
-    r = hnf_cut();
-    if (r != lia_move::undef) return r;
-    
-    r = gomory_cut();
-    return (r == lia_move::undef)? branch_or_sat() : r;
+    CHECK_RET(find_cube());        
+    CHECK_RET(hnf_cut());    
+    CHECK_RET(gomory_cut());
+    CHECK_RET(branch_or_sat());
+    return r;
 }
 
 lia_move int_solver::branch_or_sat() {

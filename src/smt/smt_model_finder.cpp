@@ -92,8 +92,9 @@ namespace smt {
             obj_map<expr, unsigned> const & get_elems() const { return m_elems; }
 
             void insert(expr * n, unsigned generation) {
-                if (m_elems.contains(n) || contains_model_value(n))
+                if (m_elems.contains(n) || contains_model_value(n)) {
                     return;
+                }
                 TRACE("model_finder", tout << mk_pp(n, m) << "\n";);
                 m.inc_ref(n);
                 m_elems.insert(n, generation);
@@ -255,8 +256,8 @@ namespace smt {
             void merge(node * other) {
                 node * r1 = get_root();
                 node * r2 = other->get_root();
-                SASSERT(r1->m_set == 0);
-                SASSERT(r2->m_set == 0);
+                SASSERT(r1->m_set == nullptr);
+                SASSERT(r2->m_set == nullptr);
                 SASSERT(r1->get_sort() == r2->get_sort());
                 if (r1 == r2)
                     return;
@@ -483,7 +484,7 @@ namespace smt {
             }
 
             void set_context(context * ctx) {
-                SASSERT(m_context==0);
+                SASSERT(m_context== nullptr);
                 m_context = ctx;
             }
             
@@ -738,7 +739,7 @@ namespace smt {
                     }
                     // TBD: add support for the else of bitvectors.
                     // Idea: get the term t with the minimal interpretation and use t - 1.
-                }
+                } 
                 n->set_else((*(elems.begin())).m_key);
             }
 
@@ -880,7 +881,6 @@ namespace smt {
             }
 
             void mk_simple_proj(node * n) {
-                TRACE("model_finder", n->display(tout, m););
                 set_projection_else(n);
                 ptr_buffer<expr> values;
                 get_instantiation_set_values(n, values);
@@ -896,6 +896,7 @@ namespace smt {
                     pi->insert_new_entry(&v, v);
                 }
                 n->set_proj(p);
+                TRACE("model_finder", n->display(tout << p->get_name() << "\n", m););
             }
 
             void mk_projections() {
@@ -1065,12 +1066,14 @@ namespace smt {
 
             void mk_inverse(node * n) {
                 SASSERT(n->is_root());
-                instantiation_set * s                 = n->get_instantiation_set();
+                instantiation_set * s = n->get_instantiation_set();
                 s->mk_inverse(*this);
             }
 
             void mk_inverses() {
-                for (node * n : m_root_nodes) {
+                unsigned offset = m_context->get_random_value();
+                for (unsigned i = m_root_nodes.size(); i-- > 0; ) {
+                    node* n = m_root_nodes[(i + offset) % m_root_nodes.size()];
                     SASSERT(n->is_root());
                     mk_inverse(n);
                 }
@@ -1838,7 +1841,7 @@ namespace smt {
                 for (qinfo* qi : m_qinfo_vect)
                     qi->populate_inst_sets(m_flat_q, m_the_one, *m_uvar_inst_sets, ctx);
                 for (instantiation_set * s : *m_uvar_inst_sets) {
-                    if (s != nullptr)
+                    if (s != nullptr) 
                         s->mk_inverse(ev);
                 }
             }

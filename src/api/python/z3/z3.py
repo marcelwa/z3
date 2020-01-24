@@ -1,5 +1,3 @@
-
-
 ############################################
 # Copyright (c) 2012 Microsoft Corporation
 #
@@ -295,6 +293,14 @@ class Z3PPObject:
     """Superclass for all Z3 objects that have support for pretty printing."""
     def use_pp(self):
         return True
+
+    def _repr_html_(self):
+        in_html = in_html_mode()
+        set_html_mode(True)
+        res = repr(self)
+        set_html_mode(in_html)
+        return res
+
 
 class AstRef(Z3PPObject):
     """AST are Direct Acyclic Graphs (DAGs) used to represent sorts, declarations and expressions."""
@@ -811,6 +817,29 @@ def Function(name, *sig):
         dom[i] = sig[i].ast
     ctx = rng.ctx
     return FuncDeclRef(Z3_mk_func_decl(ctx.ref(), to_symbol(name, ctx), arity, dom, rng.ast), ctx)
+
+def FreshFunction(*sig):
+    """Create a new fresh Z3 uninterpreted function with the given sorts.
+
+    >>> f = FreshFunction(IntSort(), IntSort())
+    >>> f(f(0))
+    f!0(f!0(0))
+    """
+    sig = _get_args(sig)
+    if z3_debug():
+        _z3_assert(len(sig) > 0, "At least two arguments expected")
+    arity = len(sig) - 1
+    rng = sig[arity]
+    if z3_debug():
+        _z3_assert(is_sort(rng), "Z3 sort expected")
+    dom = (z3.Sort * arity)()
+    for i in range(arity):
+        if z3_debug():
+            _z3_assert(is_sort(sig[i]), "Z3 sort expected")
+        dom[i] = sig[i].ast
+    ctx = rng.ctx
+    return FuncDeclRef(Z3_mk_fresh_func_decl(ctx.ref(), 'f', arity, dom, rng.ast), ctx)
+
 
 def _to_func_decl_ref(a, ctx):
     return FuncDeclRef(a, ctx)
@@ -1618,8 +1647,6 @@ def Implies(a, b, ctx=None):
     >>> p, q = Bools('p q')
     >>> Implies(p, q)
     Implies(p, q)
-    >>> simplify(Implies(p, q))
-    Or(q, Not(p))
     """
     ctx = _get_ctx(_ctx_from_ast_arg_list([a, b], ctx))
     s = BoolSort(ctx)
@@ -3720,7 +3747,7 @@ def BV2Int(a, is_signed=False):
     [x = 2, b = 1]
     """
     if z3_debug():
-        _z3_assert(is_bv(a), "Z3 bit-vector expression expected")
+        _z3_assert(is_bv(a), "First argument must be a Z3 bit-vector expression")
     ctx = a.ctx
     ## investigate problem with bv2int
     return ArithRef(Z3_mk_bv2int(ctx.ref(), a.as_ast(), is_signed), ctx)
@@ -3871,12 +3898,12 @@ def Extract(high, low, a):
     if z3_debug():
         _z3_assert(low <= high, "First argument must be greater than or equal to second argument")
         _z3_assert(_is_int(high) and high >= 0 and _is_int(low) and low >= 0, "First and second arguments must be non negative integers")
-        _z3_assert(is_bv(a), "Third argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "Third argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_extract(a.ctx_ref(), high, low, a.as_ast()), a.ctx)
 
 def _check_bv_args(a, b):
     if z3_debug():
-        _z3_assert(is_bv(a) or is_bv(b), "At least one of the arguments must be a Z3 bit-vector expression")
+        _z3_assert(is_bv(a) or is_bv(b), "First or second argument must be a Z3 bit-vector expression")
 
 def ULE(a, b):
     """Create the Z3 expression (unsigned) `other <= self`.
@@ -4093,7 +4120,7 @@ def SignExt(n, a):
     """
     if z3_debug():
         _z3_assert(_is_int(n), "First argument must be an integer")
-        _z3_assert(is_bv(a), "Second argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "Second argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_sign_ext(a.ctx_ref(), n, a.as_ast()), a.ctx)
 
 def ZeroExt(n, a):
@@ -4120,7 +4147,7 @@ def ZeroExt(n, a):
     """
     if z3_debug():
         _z3_assert(_is_int(n), "First argument must be an integer")
-        _z3_assert(is_bv(a), "Second argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "Second argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_zero_ext(a.ctx_ref(), n, a.as_ast()), a.ctx)
 
 def RepeatBitVec(n, a):
@@ -4143,19 +4170,19 @@ def RepeatBitVec(n, a):
     """
     if z3_debug():
         _z3_assert(_is_int(n), "First argument must be an integer")
-        _z3_assert(is_bv(a), "Second argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "Second argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_repeat(a.ctx_ref(), n, a.as_ast()), a.ctx)
 
 def BVRedAnd(a):
     """Return the reduction-and expression of `a`."""
     if z3_debug():
-        _z3_assert(is_bv(a), "First argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "First argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_bvredand(a.ctx_ref(), a.as_ast()), a.ctx)
 
 def BVRedOr(a):
     """Return the reduction-or expression of `a`."""
     if z3_debug():
-        _z3_assert(is_bv(a), "First argument must be a Z3 Bitvector expression")
+        _z3_assert(is_bv(a), "First argument must be a Z3 bit-vector expression")
     return BitVecRef(Z3_mk_bvredor(a.ctx_ref(), a.as_ast()), a.ctx)
 
 def BVAddNoOverflow(a, b, signed):
@@ -4192,7 +4219,7 @@ def BVSDivNoOverflow(a, b):
 def BVSNegNoOverflow(a):
     """A predicate the determines that bit-vector unary negation does not overflow"""
     if z3_debug():
-        _z3_assert(is_bv(a), "Argument should be a bit-vector")
+        _z3_assert(is_bv(a), "First argument must be a Z3 bit-vector expression")
     return BoolRef(Z3_mk_bvneg_no_overflow(a.ctx_ref(), a.as_ast()), a.ctx)
 
 def BVMulNoOverflow(a, b, signed):
@@ -4283,6 +4310,9 @@ class ArrayRef(ExprRef):
     def default(self):
         return _to_expr_ref(Z3_mk_array_default(self.ctx_ref(), self.as_ast()), self.ctx)
 
+def is_array_sort(a):
+    return Z3_get_sort_kind(a.ctx.ref(), Z3_get_sort(a.ctx.ref(), a.ast)) == Z3_ARRAY_SORT
+
 
 def is_array(a):
     """Return `True` if `a` is a Z3 array expression.
@@ -4296,9 +4326,6 @@ def is_array(a):
     False
     """
     return isinstance(a, ArrayRef)
-
-def is_array_sort(a):
-    return Z3_get_sort_kind(a.ctx.ref(), Z3_get_sort(a.ctx.ref(), a.ast)) == Z3_ARRAY_SORT
 
 def is_const_array(a):
     """Return `True` if `a` is a Z3 constant array.
@@ -4488,7 +4515,7 @@ def Map(f, *args):
     if z3_debug():
         _z3_assert(len(args) > 0, "At least one Z3 array expression expected")
         _z3_assert(is_func_decl(f), "First argument must be a Z3 function declaration")
-        _z3_assert(all([is_array_sort(a) for a in args]), "Z3 array expected expected")
+        _z3_assert(all([is_array(a) for a in args]), "Z3 array expected expected")
         _z3_assert(len(args) == f.arity(), "Number of arguments mismatch")
     _args, sz = _to_ast_array(args)
     ctx = f.ctx
@@ -4523,7 +4550,7 @@ def Ext(a, b):
     """
     ctx = a.ctx
     if z3_debug():
-        _z3_assert(is_array_sort(a) and is_array_sort(b), "arguments must be arrays")
+        _z3_assert(is_array_sort(a) and is_array(b), "arguments must be arrays")
     return _to_expr_ref(Z3_mk_array_ext(ctx.ref(), a.as_ast(), b.as_ast()), ctx)
 
 def SetHasSize(a, k):
@@ -6418,6 +6445,13 @@ class CheckSatResult:
             else:
                 return "unknown"
 
+    def _repr_html_(self):
+        in_html = in_html_mode()
+        set_html_mode(True)
+        res = repr(self)
+        set_html_mode(in_html)
+        return res
+
 sat     = CheckSatResult(Z3_L_TRUE)
 unsat   = CheckSatResult(Z3_L_FALSE)
 unknown = CheckSatResult(Z3_L_UNDEF)
@@ -6425,7 +6459,7 @@ unknown = CheckSatResult(Z3_L_UNDEF)
 class Solver(Z3PPObject):
     """Solver API provides methods for implementing the main SMT 2.0 commands: push, pop, check, get-model, etc."""
 
-    def __init__(self, solver=None, ctx=None):
+    def __init__(self, solver=None, ctx=None, logFile=None):
         assert solver is None or ctx is not None
         self.ctx    = _get_ctx(ctx)
         self.backtrack_level = 4000000000
@@ -6435,6 +6469,8 @@ class Solver(Z3PPObject):
         else:
             self.solver = solver
         Z3_solver_inc_ref(self.ctx.ref(), self.solver)
+        if logFile is not None:
+            self.set("solver.smtlib2_log", logFile)
 
     def __del__(self):
         if self.solver is not None and self.ctx.ref() is not None:
@@ -6895,7 +6931,7 @@ class Solver(Z3PPObject):
             e = BoolVal(True, self.ctx).as_ast()
         return Z3_benchmark_to_smtlib_string(self.ctx.ref(), "benchmark generated from python API", "", "unknown", "", sz1, v, e)
 
-def SolverFor(logic, ctx=None):
+def SolverFor(logic, ctx=None, logFile=None):
     """Create a solver customized for the given logic.
 
     The parameter `logic` is a string. It should be contains
@@ -6913,9 +6949,9 @@ def SolverFor(logic, ctx=None):
     """
     ctx = _get_ctx(ctx)
     logic = to_symbol(logic)
-    return Solver(Z3_mk_solver_for_logic(ctx.ref(), logic), ctx)
+    return Solver(Z3_mk_solver_for_logic(ctx.ref(), logic), ctx, logFile)
 
-def SimpleSolver(ctx=None):
+def SimpleSolver(ctx=None, logFile=None):
     """Return a simple general purpose solver with limited amount of preprocessing.
 
     >>> s = SimpleSolver()
@@ -6925,7 +6961,7 @@ def SimpleSolver(ctx=None):
     sat
     """
     ctx = _get_ctx(ctx)
-    return Solver(Z3_mk_simple_solver(ctx.ref()), ctx)
+    return Solver(Z3_mk_simple_solver(ctx.ref()), ctx, logFile)
 
 #########################################
 #
@@ -7651,7 +7687,7 @@ class Tactic:
         if self.tactic is not None and self.ctx.ref() is not None:
             Z3_tactic_dec_ref(self.ctx.ref(), self.tactic)
 
-    def solver(self):
+    def solver(self, logFile=None):
         """Create a solver using the tactic `self`.
 
         The solver supports the methods `push()` and `pop()`, but it
@@ -7666,7 +7702,7 @@ class Tactic:
         >>> s.model()
         [x = 1.4142135623?]
         """
-        return Solver(Z3_mk_solver_from_tactic(self.ctx.ref(), self.tactic), self.ctx)
+        return Solver(Z3_mk_solver_from_tactic(self.ctx.ref(), self.tactic), self.ctx, logFile)
 
     def apply(self, goal, *arguments, **keywords):
         """Apply tactic `self` to the given goal or Z3 Boolean expression using the given options.
@@ -8940,14 +8976,13 @@ class FPRef(ExprRef):
         [a, b] = _coerce_fp_expr_list([other, self], self.ctx)
         return fpDiv(_dflt_rm(), a, b, self.ctx)
 
-    if not sys.version < '3':
-        def __truediv__(self, other):
-            """Create the Z3 expression division `self / other`."""
-            return self.__div__(other)
+    def __truediv__(self, other):
+        """Create the Z3 expression division `self / other`."""
+        return self.__div__(other)
 
-        def __rtruediv__(self, other):
-            """Create the Z3 expression division `other / self`."""
-            return self.__rdiv__(other)
+    def __rtruediv__(self, other):
+        """Create the Z3 expression division `other / self`."""
+        return self.__rdiv__(other)
 
     def __mod__(self, other):
         """Create the Z3 expression mod `self % other`."""
@@ -9441,7 +9476,7 @@ def _mk_fp_bin_pred(f, a, b, ctx):
     ctx = _get_ctx(ctx)
     [a, b] = _coerce_fp_expr_list([a, b], ctx)
     if z3_debug():
-        _z3_assert(is_fp(a) or is_fp(b), "Second or third argument must be a Z3 floating-point expression")
+        _z3_assert(is_fp(a) or is_fp(b), "First or second argument must be a Z3 floating-point expression")
     return BoolRef(f(ctx.ref(), a.as_ast(), b.as_ast()), ctx)
 
 def _mk_fp_tern(f, rm, a, b, c, ctx):
@@ -9449,7 +9484,7 @@ def _mk_fp_tern(f, rm, a, b, c, ctx):
     [a, b, c] = _coerce_fp_expr_list([a, b, c], ctx)
     if z3_debug():
         _z3_assert(is_fprm(rm), "First argument must be a Z3 floating-point rounding mode expression")
-        _z3_assert(is_fp(a) or is_fp(b) or is_fp(c), "At least one of the arguments must be a Z3 floating-point expression")
+        _z3_assert(is_fp(a) or is_fp(b) or is_fp(c), "Second, third or fourth argument must be a Z3 floating-point expression")
     return FPRef(f(ctx.ref(), rm.as_ast(), a.as_ast(), b.as_ast(), c.as_ast()), ctx)
 
 def fpAdd(rm, a, b, ctx=None):
@@ -9614,7 +9649,7 @@ def fpIsPositive(a, ctx=None):
 
 def _check_fp_args(a, b):
     if z3_debug():
-        _z3_assert(is_fp(a) or is_fp(b), "At least one of the arguments must be a Z3 floating-point expression")
+        _z3_assert(is_fp(a) or is_fp(b), "First or second argument must be a Z3 floating-point expression")
 
 def fpLT(a, b, ctx=None):
     """Create the Z3 floating-point expression `other < self`.
@@ -9759,7 +9794,7 @@ def fpBVToFP(v, sort, ctx=None):
     >>> simplify(x_fp)
     1
     """
-    _z3_assert(is_bv(v), "First argument must be a Z3 floating-point rounding mode expression.")
+    _z3_assert(is_bv(v), "First argument must be a Z3 bit-vector expression")
     _z3_assert(is_fp_sort(sort), "Second argument must be a Z3 floating-point sort.")
     ctx = _get_ctx(ctx)
     return FPRef(Z3_mk_fpa_to_fp_bv(ctx.ref(), v.ast, sort.ast), ctx)
@@ -9812,7 +9847,7 @@ def fpSignedToFP(rm, v, sort, ctx=None):
     -1.25*(2**2)
     """
     _z3_assert(is_fprm(rm), "First argument must be a Z3 floating-point rounding mode expression.")
-    _z3_assert(is_bv(v), "Second argument must be a Z3 expression or real sort.")
+    _z3_assert(is_bv(v), "Second argument must be a Z3 bit-vector expression")
     _z3_assert(is_fp_sort(sort), "Third argument must be a Z3 floating-point sort.")
     ctx = _get_ctx(ctx)
     return FPRef(Z3_mk_fpa_to_fp_signed(ctx.ref(), rm.ast, v.ast, sort.ast), ctx)
@@ -9829,7 +9864,7 @@ def fpUnsignedToFP(rm, v, sort, ctx=None):
     1*(2**32)
     """
     _z3_assert(is_fprm(rm), "First argument must be a Z3 floating-point rounding mode expression.")
-    _z3_assert(is_bv(v), "Second argument must be a Z3 expression or real sort.")
+    _z3_assert(is_bv(v), "Second argument must be a Z3 bit-vector expression")
     _z3_assert(is_fp_sort(sort), "Third argument must be a Z3 floating-point sort.")
     ctx = _get_ctx(ctx)
     return FPRef(Z3_mk_fpa_to_fp_unsigned(ctx.ref(), rm.ast, v.ast, sort.ast), ctx)

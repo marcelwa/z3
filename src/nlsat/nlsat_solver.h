@@ -38,7 +38,10 @@ namespace nlsat {
 
     class solver {
         struct imp;
+        struct ctx;
         imp * m_imp;
+        ctx * m_ctx;
+        solver(ctx& c);
     public:
         solver(reslimit& rlim, params_ref const & p, bool incremental);
         ~solver();
@@ -166,7 +169,7 @@ namespace nlsat {
         void get_rvalues(assignment& as);
         void set_rvalues(assignment const& as);
 
-        void get_bvalues(svector<lbool>& vs);
+        void get_bvalues(svector<bool_var> const& bvars, svector<lbool>& vs);
         void set_bvalues(svector<lbool> const& vs);
 
         /**
@@ -241,7 +244,16 @@ namespace nlsat {
 
         std::ostream& display(std::ostream & out, unsigned n, literal const* ls) const;
 
+        std::ostream& display(std::ostream & out, literal_vector const& ls) const;
+
         std::ostream& display(std::ostream & out, atom const& a) const;
+
+        std::ostream& display_smt2(std::ostream & out, literal l) const;
+
+        std::ostream& display_smt2(std::ostream & out, unsigned n, literal const* ls) const;
+
+        std::ostream& display_smt2(std::ostream & out, literal_vector const& ls) const;
+
 
         /**
            \brief Display variable

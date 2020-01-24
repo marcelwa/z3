@@ -36,6 +36,7 @@ Notes:
 #include "ast/rewriter/var_subst.h"
 #include "ast/pp.h"
 #include "ast/ast_smt2_pp.h"
+#include "ast/ast_ll_pp.h"
 #include "ast/decl_collector.h"
 #include "ast/well_sorted.h"
 #include "ast/for_each_expr.h"
@@ -323,7 +324,7 @@ bool cmd_context::macros_find(symbol const& s, unsigned n, expr*const* args, exp
         if (d.m_domain.size() != n) continue;
         bool eq = true;
         for (unsigned i = 0; eq && i < n; ++i) {
-            eq = m().compatible_sorts(d.m_domain[i], m().get_sort(args[i]));
+            eq = d.m_domain[i] == m().get_sort(args[i]);
         }
         if (eq) {
             t = d.m_body;
@@ -688,7 +689,7 @@ void cmd_context::init_manager_core(bool new_manager) {
         register_plugin(symbol("fpa"),      alloc(fpa_decl_plugin), logic_has_fpa());
         register_plugin(symbol("datalog_relation"), alloc(datalog::dl_decl_plugin), !has_logic());
         register_plugin(symbol("csp"),      alloc(csp_decl_plugin), smt_logics::logic_is_csp(m_logic));
-        register_plugin(symbol("special_relations"), alloc(special_relations_decl_plugin), !has_logic());
+        register_plugin(symbol("specrels"), alloc(special_relations_decl_plugin), !has_logic());
     }
     else {
         // the manager was created by an external module
@@ -1076,7 +1077,7 @@ void cmd_context::mk_app(symbol const & s, unsigned num_args, expr * const * arg
               tout << "args:\n"; for (unsigned i = 0; i < num_args; i++) tout << mk_ismt2_pp(args[i], m()) << "\n" << mk_pp(m().get_sort(args[i]), m()) << "\n";);
         var_subst subst(m());
         scoped_rlimit no_limit(m().limit(), 0);
-        result = subst(_t, num_args, args);
+        result = subst(_t, num_args, args);        
         if (well_sorted_check_enabled() && !is_well_sorted(m(), result))
             throw cmd_exception("invalid macro application, sort mismatch ", s);
         return;
@@ -1084,7 +1085,6 @@ void cmd_context::mk_app(symbol const & s, unsigned num_args, expr * const * arg
 
     func_decls fs;
     if (!m_func_decls.find(s, fs)) {
-
         builtin_decl d;
         if (m_builtin_decls.find(s, d)) {
             family_id fid = d.m_fid;
@@ -1673,8 +1673,9 @@ void cmd_context::display_dimacs() {
 void cmd_context::display_model(model_ref& mdl) {
     if (mdl) {
         if (m_mc0) (*m_mc0)(mdl);
-        if (m_params.m_model_compress) mdl->compress();
         model_params p;
+        if (p.compact()) mdl->compress();
+        add_declared_functions(*mdl);
         if (p.v1() || p.v2()) {
             std::ostringstream buffer;
             model_v2_pp(buffer, *mdl, p.partial());
@@ -1683,6 +1684,23 @@ void cmd_context::display_model(model_ref& mdl) {
             regular_stream() << "(model " << std::endl;
             model_smt2_pp(regular_stream(), *this, *mdl, 2);
             regular_stream() << ")" << std::endl;
+        }
+    }
+}
+
+void cmd_context::add_declared_functions(model& mdl) {
+    for (auto const& kv : m_func_decls) {
+        func_decl* f = kv.m_value.first();
+        if (f->get_family_id() == null_family_id && !mdl.has_interpretation(f)) {
+            expr* val = mdl.get_some_value(f->get_range());
+            if (f->get_arity() == 0) {
+                mdl.register_decl(f, val);
+                }
+            else {
+                func_interp* fi = alloc(func_interp, m(), f->get_arity());
+                fi->set_else(val);
+                mdl.register_decl(f, fi);
+            }
         }
     }
 }
@@ -1771,7 +1789,9 @@ struct contains_underspecified_op_proc {
     \brief Complete the model if necessary.
 */
 void cmd_context::complete_model(model_ref& md) const {
-    if (gparams::get_value("model.completion") != "true" || !md.get())
+    if (!md.get()) 
+        return;
+    if (gparams::get_value("model.completion") != "true")
         return;
 
     params_ref p;
@@ -1863,6 +1883,9 @@ void cmd_context::validate_model() {
                 if (m().is_true(r))
                     continue;
 
+                analyze_failure(evaluator, a, true);
+                IF_VERBOSE(11, model_smt2_pp(verbose_stream(), *this, *md, 0););                
+
                 // The evaluator for array expressions is not complete
                 // If r contains as_array/store/map/const expressions, then we do not generate the error.
                 // TODO: improve evaluator for model expressions.
@@ -1878,8 +1901,6 @@ void cmd_context::validate_model() {
                     continue;
                 }
                 TRACE("model_validate", model_smt2_pp(tout, *this, *md, 0););
-                IF_VERBOSE(10, verbose_stream() << "model check failed on: " << mk_pp(a, m()) << "\n";);                
-                IF_VERBOSE(11, model_smt2_pp(verbose_stream(), *this, *md, 0););                
                 invalid_model = true;
             }
         }
@@ -1889,6 +1910,77 @@ void cmd_context::validate_model() {
     }
 }
 
+void cmd_context::analyze_failure(model_evaluator& ev, expr* a, bool expected_value) {
+    expr* c = nullptr, *t = nullptr, *e = nullptr;
+    if (m().is_not(a, e)) {
+        analyze_failure(ev, e, !expected_value);
+        return;
+    }
+    if (!expected_value && m().is_or(a)) {
+        for (expr* arg : *to_app(a)) {
+            if (ev.is_true(arg)) {
+                analyze_failure(ev, arg, false);
+                return;
+            }
+        }
+    }
+    if (expected_value && m().is_and(a)) {
+        for (expr* arg : *to_app(a)) {
+            if (ev.is_false(arg)) {
+                analyze_failure(ev, arg, true);
+                return;
+            }
+        }
+    }
+    if (expected_value && m().is_ite(a, c, t, e)) {
+        if (ev.is_true(c) && ev.is_false(t)) {
+            if (!m().is_true(c)) analyze_failure(ev, c, false);
+            if (!m().is_false(t)) analyze_failure(ev, t, true);
+            return;
+        }
+        if (ev.is_false(c) && ev.is_false(e)) {
+            if (!m().is_false(c)) analyze_failure(ev, c, true);
+            if (!m().is_false(e)) analyze_failure(ev, e, true);
+            return;
+        }
+    }
+    if (!expected_value && m().is_ite(a, c, t, e)) {
+        if (ev.is_true(c) && ev.is_true(t)) {
+            if (!m().is_true(c)) analyze_failure(ev, c, false);
+            if (!m().is_true(t)) analyze_failure(ev, t, false);
+            return;
+        }
+        if (ev.is_false(c) && ev.is_true(e)) {
+            if (!m().is_false(c)) analyze_failure(ev, c, true);
+            if (!m().is_true(e)) analyze_failure(ev, e, false);
+            return;
+        }
+    }
+    IF_VERBOSE(10, verbose_stream() << "model check failed on: " << " " << mk_pp(a, m()) << "\n";);                
+    IF_VERBOSE(10, verbose_stream() << "expected value: " << (expected_value?"true":"false") << "\n";);                
+
+    IF_VERBOSE(10, display_detailed_analysis(verbose_stream(), ev, a));
+}
+
+void cmd_context::display_detailed_analysis(std::ostream& out, model_evaluator& ev, expr* e) {
+    ptr_vector<expr> es;
+    es.push_back(e);
+    expr_mark visited;
+    for (unsigned i = 0; i < es.size(); ++i) {
+        e = es[i];
+        if (visited.is_marked(e)) {
+            continue;
+        }
+        visited.mark(e, true);
+        expr_ref val = ev(e);
+        out << "#" << e->get_id() << ": " << mk_bounded_pp(e, m(), 1) << " " << val << "\n";
+        if (is_app(e)) {
+            for (expr* arg : *to_app(e)) {
+                es.push_back(arg);
+            }
+        }
+    }
+}
 
 void cmd_context::mk_solver() {
     bool proofs_enabled, models_enabled, unsat_core_enabled;
@@ -1959,6 +2051,8 @@ bool cmd_context::is_model_available(model_ref& md) const {
         has_manager() &&
         (cs_state() == css_sat || cs_state() == css_unknown)) {
         get_check_sat_result()->get_model(md);
+        params_ref p;
+        if (md.get()) md->updt_params(p);
         complete_model(md);
         return md.get() != nullptr;
     }
@@ -2089,7 +2183,7 @@ void cmd_context::dt_eh::operator()(sort * dt, pdecl* pd) {
             m_owner.insert(a);
         }
     }
-    if (!m_owner.m_scopes.empty()) {
+    if (!m_owner.m_scopes.empty() && !m_owner.m_global_decls) {
         m_owner.pm().inc_ref(pd);
         m_owner.m_psort_inst_stack.push_back(pd);
     }

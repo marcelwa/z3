@@ -109,7 +109,7 @@ private:
     union {
         int          m_int;     // for PARAM_INT
         ast*         m_ast;     // for PARAM_AST
-        void const*  m_symbol;  // for PARAM_SYMBOL
+        symbol       m_symbol;  // for PARAM_SYMBOL
         rational*    m_rational; // for PARAM_RATIONAL
         double       m_dval;   // for PARAM_DOUBLE (remark: this is not used in float_decl_plugin)
         unsigned     m_ext_id; // for PARAM_EXTERNAL
@@ -121,11 +121,11 @@ public:
     explicit parameter(int val): m_kind(PARAM_INT), m_int(val) {}
     explicit parameter(unsigned val): m_kind(PARAM_INT), m_int(val) {}
     explicit parameter(ast * p): m_kind(PARAM_AST), m_ast(p) {}
-    explicit parameter(symbol const & s): m_kind(PARAM_SYMBOL), m_symbol(s.c_ptr()) {}
+    explicit parameter(symbol const & s): m_kind(PARAM_SYMBOL), m_symbol(s) {}
     explicit parameter(rational const & r): m_kind(PARAM_RATIONAL), m_rational(alloc(rational, r)) {}
     explicit parameter(rational && r) : m_kind(PARAM_RATIONAL), m_rational(alloc(rational, std::move(r))) {}
     explicit parameter(double d):m_kind(PARAM_DOUBLE), m_dval(d) {}
-    explicit parameter(const char *s):m_kind(PARAM_SYMBOL), m_symbol(symbol(s).c_ptr()) {}
+    explicit parameter(const char *s):m_kind(PARAM_SYMBOL), m_symbol(symbol(s)) {}
     explicit parameter(unsigned ext_id, bool):m_kind(PARAM_EXTERNAL), m_ext_id(ext_id) {}
     parameter(parameter const&);
 
@@ -176,7 +176,7 @@ public:
 
     int get_int() const { SASSERT(is_int()); return m_int; }
     ast * get_ast() const { SASSERT(is_ast()); return m_ast; }
-    symbol get_symbol() const { SASSERT(is_symbol()); return symbol::mk_symbol_from_c_ptr(m_symbol); }
+    symbol get_symbol() const { SASSERT(is_symbol()); return m_symbol; }
     rational const & get_rational() const { SASSERT(is_rational()); return *m_rational; }
     double get_double() const { SASSERT(is_double()); return m_dval; }
     unsigned get_ext_id() const { SASSERT(is_external()); return m_ext_id; }
@@ -1167,7 +1167,6 @@ protected:
     func_decl * m_th_assumption_add_decl;
     func_decl * m_th_lemma_add_decl;
     func_decl * m_redundant_del_decl;
-    func_decl * m_clause_trail_decl;
     ptr_vector<func_decl> m_apply_def_decls;
     ptr_vector<func_decl> m_nnf_pos_decls;
     ptr_vector<func_decl> m_nnf_neg_decls;
@@ -1578,6 +1577,7 @@ public:
 
     // Return true if s1 and s2 are equal, or coercions are enabled, and s1 and s2 are compatible.
     bool compatible_sorts(sort * s1, sort * s2) const;
+    expr* coerce_to(expr* e, sort* s);
 
     // For debugging purposes
     void display_free_ids(std::ostream & out) { m_expr_id_gen.display_free_ids(out); out << "\n"; m_decl_id_gen.display_free_ids(out); }
@@ -1938,6 +1938,14 @@ public:
 
     app * mk_fresh_const(char const * prefix, sort * s, bool skolem = true) { 
         return mk_const(mk_fresh_func_decl(prefix, 0, nullptr, s, skolem)); 
+    }
+
+    app * mk_fresh_const(std::string const& prefix, sort * s, bool skolem = true) { 
+        return mk_fresh_const(prefix.c_str(), s, skolem);        
+    }
+
+    app * mk_fresh_const(symbol const& prefix, sort * s, bool skolem = true) { 
+        return mk_fresh_const(prefix.str().c_str(), s, skolem);
     }
 
     symbol mk_fresh_var_name(char const * prefix = nullptr);

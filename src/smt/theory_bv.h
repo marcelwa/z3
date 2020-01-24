@@ -19,13 +19,13 @@ Revision History:
 #ifndef THEORY_BV_H_
 #define THEORY_BV_H_
 
-#include "smt/smt_theory.h"
-#include "smt/params/theory_bv_params.h"
 #include "ast/rewriter/bit_blaster/bit_blaster.h"
 #include "util/trail.h"
 #include "util/union_find.h"
 #include "ast/arith_decl_plugin.h"
-#include "smt/proto_model/numeral_factory.h"
+#include "model/numeral_factory.h"
+#include "smt/smt_theory.h"
+#include "smt/params/theory_bv_params.h"
 
 namespace smt {
     
@@ -273,12 +273,9 @@ namespace smt {
 
         bool get_fixed_value(app* x, numeral & result) const;
 
-
-#ifdef Z3DEBUG
         bool check_assignment(theory_var v);
         bool check_invariant();
         bool check_zero_one_bits(theory_var v);
-#endif
     };
 };
 

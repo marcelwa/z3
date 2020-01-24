@@ -2323,6 +2323,7 @@ void context::updt_params() {
     m_children_order = static_cast<spacer_children_order>(m_params.spacer_order_children());
     m_simplify_pob = m_params.spacer_simplify_pob();
     m_use_euf_gen = m_params.spacer_use_euf_gen();
+    m_use_lim_num_gen = m_params.spacer_use_lim_num_gen();
     m_use_ctp = m_params.spacer_ctp();
     m_use_inc_clause = m_params.spacer_use_inc_clause();
     m_blast_term_ite_inflation = m_params.spacer_blast_term_ite_inflation();
@@ -2671,6 +2672,12 @@ void context::init_lemma_generalizers()
     if (m_use_ind_gen) {
         m_lemma_generalizers.push_back(alloc(lemma_bool_inductive_generalizer, *this, 0));
     }
+
+    // after the lemma is minimized (maybe should also do before)
+    if (m_use_lim_num_gen) {
+        m_lemma_generalizers.push_back(alloc(limit_num_generalizer, *this, 5));
+    }
+
 
     if (m_use_array_eq_gen) {
         m_lemma_generalizers.push_back(alloc(lemma_array_eq_generalizer, *this));
@@ -3045,9 +3052,10 @@ lbool context::solve_core (unsigned from_lvl)
 
         STRACE("spacer_progress", tout << "\n* LEVEL " << lvl << "\n";);
         IF_VERBOSE(1,
-                   if (m_params.print_statistics ()) {
+                   if (m_params.print_statistics()) {
                        statistics st;
-                       collect_statistics (st);
+                       collect_statistics(st);
+                       st.display_smt2(verbose_stream());
                    };
             );
 
@@ -3263,7 +3271,7 @@ bool context::is_reachable(pob &n)
 
 void context::dump_json()
 {
-    if (m_params.spacer_print_json().size()) {
+    if (!m_params.spacer_print_json().is_null()) {
         std::ofstream of;
         of.open(m_params.spacer_print_json().bare_str());
         m_json_marshaller.marshal(of);
@@ -3406,9 +3414,8 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         return l_undef;
 
     }
-    case l_false:
+    case l_false: {
         // n is unreachable, create new summary facts
-    {
         timeit _timer (is_trace_enabled("spacer_timeit"),
                        "spacer::expand_pob::false",
                        verbose_stream ());
@@ -3486,8 +3493,9 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             m_stats.m_expand_pob_undef++;
             if (r && r->get_uninterpreted_tail_size() > 0) {
                 // do not trust reach_pred_used
-                for (unsigned i = 0, sz = reach_pred_used.size(); i < sz; ++i)
-                { reach_pred_used[i] = false; }
+                for (unsigned i = 0, sz = reach_pred_used.size(); i < sz; ++i) {
+                    reach_pred_used[i] = false; 
+                }
                 has_new_child = create_children(n, *r, *model, reach_pred_used, out);
             }
             IF_VERBOSE(1, verbose_stream() << " UNDEF "
@@ -3792,6 +3800,7 @@ bool context::create_children(pob& n, datalog::rule const& r,
 
 void context::collect_statistics(statistics& st) const
 {
+	// m_params is not necessarily live when collect_statistics is called.
     m_pool0->collect_statistics(st);
     m_pool1->collect_statistics(st);
     m_pool2->collect_statistics(st);
@@ -3833,7 +3842,6 @@ void context::collect_statistics(statistics& st) const
     // -- time in creating new predecessors
     st.update ("time.spacer.solve.reach.children",
                m_create_children_watch.get_seconds ());
-    st.update("spacer.random_seed", m_params.spacer_random_seed());
     st.update("spacer.lemmas_imported", m_stats.m_num_lemmas_imported);
     st.update("spacer.lemmas_discarded", m_stats.m_num_lemmas_discarded);
 
@@ -3942,7 +3950,7 @@ void context::add_constraint (expr *c, unsigned level)
 }
 
 void context::new_lemma_eh(pred_transformer &pt, lemma *lem) {
-    if (m_params.spacer_print_json().size())
+    if (!m_params.spacer_print_json().is_null())
         m_json_marshaller.register_lemma(lem);
     bool handle=false;
     for (unsigned i = 0; i < m_callbacks.size(); i++) {
@@ -3966,7 +3974,7 @@ void context::new_lemma_eh(pred_transformer &pt, lemma *lem) {
 }
 
 void context::new_pob_eh(pob *p) {
-    if (m_params.spacer_print_json().size())
+    if (!m_params.spacer_print_json().is_null())
         m_json_marshaller.register_pob(p);
 }
 

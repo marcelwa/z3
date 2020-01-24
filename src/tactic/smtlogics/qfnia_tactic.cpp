@@ -43,18 +43,21 @@ static tactic * mk_qfnia_bv_solver(ast_manager & m, params_ref const & p_ref) {
     simp2_p.set_bool("local_ctx", true);
     simp2_p.set_uint("local_ctx_limit", 10000000);
 
+    params_ref mem_p = p;
+    mem_p.set_uint("max_memory", 100);
+
     
     tactic * r = using_params(and_then(mk_simplify_tactic(m),
                                        mk_propagate_values_tactic(m),
                                        using_params(mk_simplify_tactic(m), simp2_p),
                                        mk_max_bv_sharing_tactic(m),
-                                       mk_bit_blaster_tactic(m),
+                                       using_params(mk_bit_blaster_tactic(m), mem_p),
                                        mk_sat_tactic(m)),
                               p);
     return r;
 }
 
-static tactic * mk_qfnia_premable(ast_manager & m, params_ref const & p_ref) {
+static tactic * mk_qfnia_preamble(ast_manager & m, params_ref const & p_ref) {
     params_ref pull_ite_p = p_ref;
     pull_ite_p.set_bool("pull_cheap_ite", true);
     pull_ite_p.set_bool("local_ctx", true);
@@ -115,7 +118,7 @@ tactic * mk_qfnia_tactic(ast_manager & m, params_ref const & p) {
 
     return and_then(
         mk_report_verbose_tactic("(qfnia-tactic)", 10),
-        mk_qfnia_premable(m, p),
+        mk_qfnia_preamble(m, p),
                 
         or_else(mk_qfnia_sat_solver(m, p),
                 try_for(mk_qfnia_smt_solver(m, p), 2000),

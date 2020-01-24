@@ -97,14 +97,17 @@ To clean Z3 you can delete the build directory and run the ``mk_make.py`` script
 
 ## Building Z3 using CMake
 
-Z3 has an unofficial build system using CMake. Read the [README-CMake.md](README-CMake.md)
-file for details.
+Z3 has a build system using CMake. Read the [README-CMake.md](README-CMake.md)
+file for details. It is recommended for most build tasks, 
+except for building OCaml bindings.
 
 ## Z3 bindings
 
 Z3 has bindings for various programming languages.
 
 ### ``.NET``
+
+You can install a nuget package for the latest release Z3 from [nuget.org](https://www.nuget.org/packages/Microsoft.Z3.x64/).
 
 Use the ``--dotnet`` command line flag with ``mk_make.py`` to enable building these.
 
@@ -156,6 +159,12 @@ See [``examples/ml``](examples/ml) for examples.
 
 ### ``Python``
 
+You can install the Python wrapper for Z3 for the latest release from pypi using the command
+
+```bash
+   pip install z3-solver
+```
+
 Use the ``--python`` command line flag with ``mk_make.py`` to enable building these.
 
 Note that is required on certain platforms that the Python package directory
@@ -204,11 +213,11 @@ See [``examples/python``](examples/python) for examples.
 * Default input format is [SMTLIB2](http://smtlib.cs.uiowa.edu)
 
 * Other native foreign function interfaces:
+ * [C++ API](https://z3prover.github.io/api/html/group__cppapi.html)
+ * [.NET API](https://z3prover.github.io/api/html/namespace_microsoft_1_1_z3.html)
+ * [Java API](https://z3prover.github.io/api/html/namespacecom_1_1microsoft_1_1z3.html)
+ * [Python API](https://z3prover.github.io/api/html/namespacez3py.html) (also available in [pydoc format](https://z3prover.github.io/api/html/z3.html))
   * C
-  * C++
-  * Python
-  * Java
-  * C#
   * OCaml
 
 

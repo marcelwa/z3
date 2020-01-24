@@ -26,9 +26,9 @@
 #include "ast/rewriter/th_rewriter.h"
 #include "ast/rewriter/seq_rewriter.h"
 #include "ast/seq_decl_plugin.h"
+#include "model/value_factory.h"
 #include "smt/smt_theory.h"
 #include "smt/params/theory_str_params.h"
-#include "smt/proto_model/value_factory.h"
 #include "smt/smt_model_generator.h"
 #include "smt/smt_arith_value.h"
 #include<set>
@@ -328,7 +328,6 @@ protected:
     expr_ref_vector m_delayed_axiom_setup_terms;
 
     ptr_vector<enode> m_basicstr_axiom_todo;
-    svector<std::pair<enode*,enode*> > m_str_eq_todo;
     ptr_vector<enode> m_concat_axiom_todo;
     ptr_vector<enode> m_string_constant_length_todo;
     ptr_vector<enode> m_concat_eval_todo;
@@ -345,6 +344,9 @@ protected:
     // this prevents infinite recursive descent with respect to axioms that
     // include an occurrence of the term for which axioms are being generated
     obj_hashtable<expr> axiomatized_terms;
+
+    // hashtable of all top-level exprs for which set_up_axioms() has been called
+    obj_hashtable<expr> existing_toplevel_exprs;
 
     int tmpStringVarCount;
     int tmpXorVarCount;
@@ -486,6 +488,8 @@ protected:
     void assert_axiom(expr * e);
     void assert_implication(expr * premise, expr * conclusion);
     expr * rewrite_implication(expr * premise, expr * conclusion);
+    // Use the rewriter to simplify an axiom, then assert it.
+    void assert_axiom_rw(expr * e);
 
     expr * mk_string(zstring const& str);
     expr * mk_string(const char * str);
@@ -512,7 +516,7 @@ protected:
     void track_variable_scope(expr * var);
     app * mk_str_var(std::string name);
     app * mk_int_var(std::string name);
-    app * mk_nonempty_str_var();
+    app_ref mk_nonempty_str_var();
     app * mk_internal_xor_var();
     expr * mk_internal_valTest_var(expr * node, int len, int vTries);
     app * mk_regex_rep_var();
@@ -572,6 +576,7 @@ protected:
     expr * z3str2_get_eqc_value(expr * n , bool & hasEqcValue);
     bool in_same_eqc(expr * n1, expr * n2);
     expr * collect_eq_nodes(expr * n, expr_ref_vector & eqcSet);
+    bool is_var(expr * e) const;
 
     bool get_arith_value(expr* e, rational& val) const;
     bool get_len_value(expr* e, rational& val);

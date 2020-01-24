@@ -54,7 +54,8 @@ namespace smt {
         set_prop_upward(v,d);
         d_full->m_maps.push_back(s);
         m_trail_stack.push(push_back_trail<theory_array, enode *, false>(d_full->m_maps));
-        for (enode* n : d->m_parent_selects) {
+        for (unsigned i = 0; i < d->m_parent_selects.size(); ++i) {
+            enode* n = d->m_parent_selects[i];
             SASSERT(is_select(n));
             instantiate_select_map_axiom(n, s);
         }
@@ -90,10 +91,6 @@ namespace smt {
         if (!m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
             for (enode * n : d->m_parent_selects) {
                 if (!m_params.m_array_cg || n->is_cgr()) {
-                    if (m_params.m_array_weak) {
-                        found_unsupported_op(s);
-                        break;
-                    }
                     instantiate_select_map_axiom(n, s);
                 }                
             }
@@ -107,13 +104,13 @@ namespace smt {
         v = find(v);
         var_data * d = m_var_data[v];
         if (!d->m_prop_upward) {
+            if (m_params.m_array_weak) {
+                add_weak_var(v);
+                return;
+            }
             m_trail_stack.push(reset_flag_trail<theory_array>(d->m_prop_upward));
             d->m_prop_upward = true;
             TRACE("array", tout << "#" << v << "\n";);
-            if (m_params.m_array_weak) {
-                found_unsupported_op(v);
-                return;
-            }
             if (!m_params.m_array_delay_exp_axiom) {
                 instantiate_axiom2b_for(v);
                 instantiate_axiom_map_for(v);
@@ -355,19 +352,15 @@ namespace smt {
         SASSERT(v != null_theory_var);
         v = find(v);
         var_data* d = m_var_data[v];
-        TRACE("array", tout << "v" << v << " " << d->m_prop_upward << " " << m_params.m_array_delay_exp_axiom << "\n";);
+        TRACE("array", tout << "v" << v << " " << mk_pp(get_enode(v)->get_owner(), get_manager()) << " " 
+              << d->m_prop_upward << " " << m_params.m_array_delay_exp_axiom << "\n";);
         for (enode * store : d->m_stores) {
             SASSERT(is_store(store));
             instantiate_default_store_axiom(store);
         }        
 
         if (!m_params.m_array_delay_exp_axiom && d->m_prop_upward) {
-            if (m_params.m_array_weak) {
-                found_unsupported_op(v);
-            }
-            else {
-                instantiate_parent_stores_default(v);
-            }
+            instantiate_parent_stores_default(v);            
         }
     }
 
@@ -391,10 +384,6 @@ namespace smt {
             for (enode * map : d_full->m_parent_maps) {
                 SASSERT(is_map(map));
                 if (!m_params.m_array_cg || map->is_cgr()) {
-                    if (m_params.m_array_weak) {
-                        found_unsupported_op(s);
-                        break;
-                    }
                     instantiate_select_map_axiom(s, map);
                 }
             }
@@ -690,7 +679,7 @@ namespace smt {
         app* store_app = store->get_owner();
         context& ctx = get_context();
         ast_manager& m = get_manager();
-        if (!ctx.add_fingerprint(this, m_default_store_fingerprint, 1, &store)) {
+        if (!ctx.add_fingerprint(this, m_default_store_fingerprint, store->get_num_args(), store->get_args())) {
             return false;
         }
 
@@ -723,15 +712,6 @@ namespace smt {
             eq = mk_and(eqs);
             expr* defA = mk_default(store_app->get_arg(0));
             def2 = m.mk_ite(eq, store_app->get_arg(num_args-1), defA); 
-#if 0
-            // 
-            // add soft constraints to guide model construction so that 
-            // epsilon agrees with the else case in the model construction.
-            // 
-            for (unsigned i = 0; i < eqs.size(); ++i) {
-                // assume_diseq(eqs[i]);
-            }
-#endif 
         }
 
         def1 = mk_default(store_app);
@@ -764,10 +744,7 @@ namespace smt {
                 if (d->m_prop_upward && instantiate_axiom_map_for(v))
                     r = FC_CONTINUE;
                 if (d->m_prop_upward) {
-                    if (m_params.m_array_weak) {
-                        found_unsupported_op(v);
-                    }
-                    else if (instantiate_parent_stores_default(v))
+                    if (instantiate_parent_stores_default(v))
                         r = FC_CONTINUE;
                 }
             }
@@ -782,8 +759,8 @@ namespace smt {
         if (r == FC_DONE && m_bapa) {
             r = m_bapa->final_check();
         }
-
-        if (r == FC_DONE && m_found_unsupported_op)
+        bool should_giveup = m_found_unsupported_op || has_propagate_up_trail();
+        if (r == FC_DONE && should_giveup)
             r = FC_GIVEUP;
         return r;
     }
@@ -795,11 +772,10 @@ namespace smt {
         var_data* d = m_var_data[v];
         bool result = false;
         for (enode * store : d->m_parent_stores) {
-            TRACE("array", tout << expr_ref(store->get_owner(), get_manager()) << "\n";);
             SASSERT(is_store(store));
-            if (!m_params.m_array_cg || store->is_cgr()) {
-                if (instantiate_default_store_axiom(store))
-                    result = true;
+            if ((!m_params.m_array_cg || store->is_cgr()) && 
+                instantiate_default_store_axiom(store)) {
+                result = true;
             }
         }
         return result;

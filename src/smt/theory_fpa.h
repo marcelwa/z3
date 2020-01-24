@@ -24,7 +24,7 @@ Revision History:
 #include "ast/fpa/fpa2bv_converter.h"
 #include "ast/fpa/fpa2bv_rewriter.h"
 #include "ast/rewriter/th_rewriter.h"
-#include "smt/proto_model/value_factory.h"
+#include "model/value_factory.h"
 #include "smt/smt_model_generator.h"
 
 namespace smt {
@@ -196,6 +196,10 @@ namespace smt {
 
         app_ref wrap(expr * e);
         app_ref unwrap(expr * e, sort * s);
+
+        enode* ensure_enode(expr* e);
+        enode* get_root(expr* a) { return ensure_enode(a)->get_root(); }
+        app* get_ite_value(expr* e);
     };
 
 };

@@ -99,7 +99,12 @@ namespace sat {
         m_local_search_dbg_flips = p.local_search_dbg_flips();
         m_unit_walk       = p.unit_walk();
         m_unit_walk_threads = p.unit_walk_threads();
-        m_binspr            = false; // unsound :-( p.binspr();
+        m_binspr            = p.binspr();
+        m_anf_simplify      = p.anf();
+        m_anf_delay         = p.anf_delay();
+        m_anf_exlin         = p.anf_exlin();
+        m_aig_simplify      = p.aig();
+        m_aig_delay         = p.aig_delay();
         m_lookahead_simplify = p.lookahead_simplify();
         m_lookahead_double = p.lookahead_double();
         m_lookahead_simplify_bca = p.lookahead_simplify_bca();
@@ -181,6 +186,7 @@ namespace sat {
         m_drat_file       = p.drat_file();
         m_drat            = (m_drat_check_unsat || m_drat_file != symbol("") || m_drat_check_sat) && p.threads() == 1;
         m_drat_binary     = p.drat_binary();
+        m_drat_activity   = p.drat_activity();
         m_dyn_sub_res     = p.dyn_sub_res();
 
         // Parameters used in Liang, Ganesh, Poupart, Czarnecki AAAI 2016.
