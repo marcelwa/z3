@@ -38,6 +38,7 @@ Revision History:
 #include "smt/smt_model_generator.h"
 #include "smt/smt_model_checker.h"
 #include "smt/smt_model_finder.h"
+#include "smt/smt_parallel.h"
 
 namespace smt {
 
@@ -63,6 +64,8 @@ namespace smt {
         m_e_internalized_stack(m),
         m_final_check_idx(0),
         m_is_auxiliary(false),
+        m_par(nullptr),
+        m_par_index(0),
         m_cg_table(m),
         m_is_diseq_tmp(nullptr),
         m_units_to_reassert(m),
@@ -1847,15 +1850,24 @@ namespace smt {
             else {
                 switch (m_fparams.m_phase_selection) {
                 case PS_THEORY: 
-                    if (d.is_theory_atom()) {
+                    if (m_phase_cache_on && d.m_phase_available) {
+                        is_pos = m_bdata[var].m_phase;
+                    }
+                    else if (!m_phase_cache_on && d.is_theory_atom()) {
                         theory * th = m_theories.get_plugin(d.get_theory());
                         lbool ph = th->get_phase(var);
                         if (ph != l_undef) {
                             is_pos = ph == l_true;
-                            break;
+                        }
+                        else {
+                            is_pos = m_phase_default;
                         }
                     }
-                    Z3_fallthrough;
+                    else {
+                        TRACE("phase_selection", tout << "setting to false\n";);
+                        is_pos = m_phase_default;
+                    }
+                    break;
                 case PS_CACHING:
                 case PS_CACHING_CONSERVATIVE:
                 case PS_CACHING_CONSERVATIVE2:
@@ -3376,6 +3388,11 @@ namespace smt {
         SASSERT(!m_setup.already_configured());
         setup_context(m_fparams.m_auto_config);
 
+        if (m_fparams.m_threads > 1) {
+            parallel p(*this);
+            expr_ref_vector asms(m);
+            return p(asms);
+        }
 
         internalize_assertions();
         expr_ref_vector theory_assumptions(m);
@@ -3432,6 +3449,11 @@ namespace smt {
         if (!check_preamble(reset_cancel)) return l_undef;
         SASSERT(at_base_level());
         setup_context(false);
+        if (m_fparams.m_threads > 1) {            
+            expr_ref_vector asms(m, num_assumptions, assumptions);
+            parallel p(*this);
+            return p(asms);
+        }
         lbool r;
         do {
             pop_to_base_lvl();

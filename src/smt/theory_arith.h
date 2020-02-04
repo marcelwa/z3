@@ -48,6 +48,7 @@ namespace smt {
         unsigned m_max_min; 
         unsigned m_gb_simplify, m_gb_superpose, m_gb_compute_basis, m_gb_num_processed;
         unsigned m_nl_branching, m_nl_linear, m_nl_bounds, m_nl_cross_nested;
+        unsigned m_branch_infeasible_int, m_branch_infeasible_var;
 
         void reset() { memset(this, 0, sizeof(theory_arith_stats)); }
         theory_arith_stats() { reset(); }
@@ -999,7 +1000,7 @@ namespace smt {
         bool is_mixed_real_integer(row const & r) const;
         bool is_integer(row const & r) const;
         typedef std::pair<rational, expr *> coeff_expr; 
-        void get_polynomial_info(sbuffer<coeff_expr> const & p, sbuffer<var_num_occs> & vars);
+        bool get_polynomial_info(sbuffer<coeff_expr> const & p, sbuffer<var_num_occs> & vars);
         expr * p2expr(sbuffer<coeff_expr> & p);
         expr * power(expr * var, unsigned power);
         expr * mk_nary_mul(unsigned sz, expr * const * args, bool is_int);
@@ -1039,6 +1040,13 @@ namespace smt {
         bool internalize_gb_eq(grobner::equation const * eq);
         enum gb_result { GB_PROGRESS, GB_NEW_EQ, GB_FAIL };
         gb_result compute_grobner(svector<theory_var> const & nl_cluster);
+        bool compute_basis_loop(grobner & gb);
+        void compute_basis(grobner&, bool&);
+        void update_statistics(grobner&);
+        void set_gb_exhausted();
+        bool get_gb_eqs_and_look_for_conflict(ptr_vector<grobner::equation>& eqs, grobner&);
+        bool scan_for_linear(ptr_vector<grobner::equation>& eqs, grobner&);
+        bool try_to_modify_eqs(ptr_vector<grobner::equation>& eqs, grobner&, unsigned &);
         bool max_min_nl_vars();
         final_check_status process_non_linear();
         
@@ -1055,6 +1063,8 @@ namespace smt {
         theory * mk_fresh(context * new_ctx) override;
 
         void setup() override;
+
+        lbool get_phase(bool_var v) override;
 
         char const * get_name() const override { return "arithmetic"; }
 
