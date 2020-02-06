@@ -33,16 +33,13 @@ namespace smt {
         unsigned thread_max_conflicts = ctx.get_fparams().m_threads_max_conflicts;
         unsigned max_conflicts = ctx.get_fparams().m_max_conflicts;
 
-#if 0
-        // TBD: try first sequential with a low conflict budget to make super easy problems cheap
-        ctx.get_fparams().m_max_conflicts = std::min(thread_max_conflicts, 20);
+        // try first sequential with a low conflict budget to make super easy problems cheap
+        unsigned max_c = std::min(thread_max_conflicts, 40u);
+        ctx.get_fparams().m_max_conflicts = max_c;
         result = ctx.check(asms.size(), asms.c_ptr());
-        if (result != l_undef || ctx.m_num_conflicts < max_conflicts) {
+        if (result != l_undef || ctx.m_num_conflicts < max_c) {
             return result;
         }        
-#else 
-        ctx.internalize_assertions();
-#endif
 
         enum par_exception_kind {
             DEFAULT_EX,
@@ -65,7 +62,7 @@ namespace smt {
             pms.push_back(new_m);
             pctxs.push_back(alloc(context, *new_m, ctx.get_fparams(), ctx.get_params())); 
             context& new_ctx = *pctxs.back();
-            context::copy(ctx, new_ctx);
+            context::copy(ctx, new_ctx, true);
             new_ctx.set_random_seed(i + ctx.get_fparams().m_random_seed);
             ast_translation tr(*new_m, m);
             pasms.push_back(tr(asms));
@@ -184,7 +181,7 @@ namespace smt {
 
             collect_units();
             ++num_rounds;
-            max_conflicts = (max_conflicts < thread_max_conflicts) ? 0 : (thread_max_conflicts - max_conflicts);
+            max_conflicts = (max_conflicts < thread_max_conflicts) ? 0 : (max_conflicts - thread_max_conflicts);
             thread_max_conflicts *= 2;            
         }
 
@@ -206,7 +203,7 @@ namespace smt {
         case l_true: 
             pctx.get_model(mdl);
             if (mdl) {
-                ctx.m_model = mdl->translate(tr);
+                ctx.set_model(mdl->translate(tr));
             }
             break;
         case l_false:

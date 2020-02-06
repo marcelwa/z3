@@ -1597,13 +1597,34 @@ public:
         m_variable_values.clear();
     }
 
+    bool influences_nl_var(theory_var v) const {
+        if (!m_use_nla)            
+            return false; // that is the legacy solver behavior
+        if (!m_nla)
+            return false;
+            
+        return m_nla->influences_nl_var(get_lpvar(v));
+    }
+    
+    bool can_be_used_in_random_update(theory_var v) const {
+        if (!th.is_relevant_and_shared(get_enode(v)))
+            return false;
+
+        if (is_int(v))
+            return false;
+
+        if (influences_nl_var(v))
+            return false;
+        
+        return true;
+    }
+    
     bool assume_eqs() {        
         svector<lpvar> vars;
         theory_var sz = static_cast<theory_var>(th.get_num_vars());
         for (theory_var v = 0; v < sz; ++v) {
-            if (th.is_relevant_and_shared(get_enode(v))) { 
+            if (th.is_relevant_and_shared(get_enode(v))) 
                 vars.push_back(get_lpvar(v));
-            }
         }
         if (vars.empty()) {
             return false;
@@ -2168,32 +2189,6 @@ public:
 
     nla::lemma m_lemma;
  
-    // lp::lar_term mk_term(nla::polynomial const& poly) {
-    //     lp::lar_term term;
-    //     for (auto const& mon : poly) {
-    //         SASSERT(!mon.empty());
-    //         if (mon.size() == 1) {
-    //             term.add_var(mon[0]);
-    //         }
-    //         else {
-    //             // create the expression corresponding to the product.
-    //             // internalize it.
-    //             // extract the theory var representing the product.
-    //             // convert the theory var back to lpvar
-    //             expr_ref_vector mul(m);
-    //             for (lpvar v : mon) {
-    //                 theory_var w = lp().local_to_external(v);
-    //                 mul.push_back(get_enode(w)->get_owner());
-    //             }
-    //             app_ref t(a.mk_mul(mul.size(), mul.c_ptr()), m);
-    //             VERIFY(internalize_term(t));
-    //             theory_var w = ctx().get_enode(t)->get_th_var(get_id());
-    //             term.add_var(lp().external_to_local(w));
-    //         }
-    //     }
-    //     return term;
-    // }
-
     void false_case_of_check_nla() {
         literal_vector core;
         for (auto const& ineq : m_lemma.ineqs()) {
@@ -2347,20 +2342,36 @@ public:
             
     }
 
-    void propagate_bounds_with_lp_solver() {
-        if (BP_NONE == propagation_mode()) {
-            return;
+    unsigned m_propagation_delay{1};
+    unsigned m_propagation_count{0};
+    
+    bool should_propagate() {
+        ++m_propagation_count;
+        return BP_NONE != propagation_mode() && (m_propagation_count >= m_propagation_delay);
+    }
+
+    void update_propagation_threshold(bool made_progress) {
+        m_propagation_count = 0;
+        if (made_progress) {
+            m_propagation_delay = std::max(1u, m_propagation_delay-1u);
         }
-        int num_of_p = lp().settings().stats().m_num_of_implied_bounds;
-        (void)num_of_p;
+        else {
+            m_propagation_delay += 2;
+        }
+    }
+
+    void propagate_bounds_with_lp_solver() {
+        if (!should_propagate()) 
+            return;
         local_bound_propagator bp(*this);
+        unsigned num_changed = lp().num_changed_bounds();
+
         lp().propagate_bounds_for_touched_rows(bp);
         if (m.canceled()) {
             return;
         }
-        int new_num_of_p = lp().settings().stats().m_num_of_implied_bounds;
-        (void)new_num_of_p;
-        CTRACE("arith", new_num_of_p > num_of_p, tout << "found " << new_num_of_p << " implied bounds\n";);
+        unsigned props = m_stats.m_bound_propagations1;
+
         if (is_infeasible()) {
             get_infeasibility_explanation_and_set_conflict();
         }
@@ -2369,32 +2380,24 @@ public:
                 propagate_lp_solver_bound(bp.m_ibounds[i]);
             }
         }
+        update_propagation_threshold(props < m_stats.m_bound_propagations1);
     }
 
     bool bound_is_interesting(unsigned vi, lp::lconstraint_kind kind, const rational & bval) const {
         theory_var v = lp().local_to_external(vi);
-        if (v == null_theory_var) return false;
-
+        if (v == null_theory_var) {
+            return false;
+        }
         if (m_unassigned_bounds[v] == 0 || m_bounds.size() <= static_cast<unsigned>(v)) {
             return false;
         }
-        lp_bounds const& bounds = m_bounds[v];
-        for (unsigned i = 0; i < bounds.size(); ++i) {
-            lp_api::bound* b = bounds[i];
-            if (ctx().get_assignment(b->get_bv()) != l_undef) {
-                continue;
+        for (lp_api::bound* b : m_bounds[v]) {
+            if (ctx().get_assignment(b->get_bv()) == l_undef &&
+                null_literal != is_bound_implied(kind, bval, *b)) {
+                return true;
             }
-            literal lit = is_bound_implied(kind, bval, *b);
-            if (lit == null_literal) {
-                continue;
-            }
-            return true;
         }
         return false;
-    }
-
-    nla::solver* get_nla_solver() {        
-        return m_switcher.m_nla ? m_switcher.m_nla->get() : nullptr;
     }
 
     struct local_bound_propagator: public lp::lp_bound_propagator {
@@ -2461,7 +2464,7 @@ public:
                   );
             DEBUG_CODE(
                 for (auto& lit : m_core) {
-                                          SASSERT(ctx().get_assignment(lit) == l_true);
+                    VERIFY(ctx().get_assignment(lit) == l_true);
                 });
             ++m_stats.m_bound_propagations1;
             assign(lit);
@@ -3461,6 +3464,15 @@ public:
         }
     }    
 
+    bool include_func_interp(func_decl* f) {
+        return 
+            a.is_div0(f) ||
+            a.is_idiv0(f) ||
+            a.is_power0(f) ||
+            a.is_rem0(f) ||
+            a.is_mod0(f);        
+    }
+
     bool get_lower(enode* n, rational& val, bool& is_strict) {
         theory_var v = n->get_th_var(get_id());
         if (!can_get_bound(v)) {
@@ -3956,6 +3968,9 @@ bool theory_lra::get_value(enode* n, rational& r) {
 }
 bool theory_lra::get_value(enode* n, expr_ref& r) {
     return m_imp->get_value(n, r);
+}
+bool theory_lra::include_func_interp(func_decl* f) {
+    return m_imp->include_func_interp(f);
 }
 bool theory_lra::get_lower(enode* n, expr_ref& r) {
     return m_imp->get_lower(n, r);
