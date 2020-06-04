@@ -43,8 +43,8 @@
 #include "math/lp/lar_solver.h"
 #include "math/lp/numeric_pair.h"
 #include "math/lp/binary_heap_upair_queue.h"
-#include "math/lp/stacked_value.h"
-#include "math/lp/int_set.h"
+#include "util/stacked_value.h"
+#include "math/lp/u_set.h"
 #include "util/stopwatch.h"
 #include <cstdlib>
 #include "test/lp/gomory_test.h"
@@ -57,8 +57,11 @@
 #include "math/lp/nla_solver.h"
 #include "math/lp/horner.h"
 #include "math/lp/cross_nested.h"
+#include "math/lp/int_cube.h"
+#include "math/lp/emonics.h"
 namespace nla {
 void test_horner();
+void test_monics();
 void test_order_lemma();
 void test_monotone_lemma();
 void test_basic_sign_lemma();
@@ -75,6 +78,7 @@ void test_cn_on_expr(nex_sum *t, cross_nested& cn) {
 }
 
 void test_nex_order() {
+#if Z3DEBUG
     enable_trace("nla_cn");
     enable_trace("nla_cn_details");
     // enable_trace("nla_cn_details_");
@@ -86,33 +90,34 @@ void test_nex_order() {
     nex_var* a = r.mk_var(0);
     nex_var* b = r.mk_var(1);
     nex_var* c = r.mk_var(2);
-    SASSERT(r.gt(a, b));
-    SASSERT(r.gt(b, c));
-    SASSERT(r.gt(a, c));
+    ENSURE(r.gt(a, b));
+    ENSURE(r.gt(b, c));
+    ENSURE(r.gt(a, c));
     
 
     
     nex* ab = r.mk_mul(a, b);
     nex* ba = r.mk_mul(b, a);
     nex* ac = r.mk_mul(a, c);
-    SASSERT(r.gt(ab, ac));
-    SASSERT(!r.gt(ac, ab));
+    ENSURE(r.gt(ab, ac));
+    ENSURE(!r.gt(ac, ab));
     nex* _3ac = r.mk_mul(rational(3), a, c);
     nex* _2ab = r.mk_mul(rational(2), a, b);
-    SASSERT(r.gt(ab, _3ac));
-    SASSERT(!r.gt(_3ac, ab));
-    SASSERT(!r.gt(a, ab));
-    SASSERT(r.gt(ab, a));
-    SASSERT(r.gt(_2ab, _3ac));
-    SASSERT(!r.gt(_3ac, _2ab));
+    ENSURE(r.gt(ab, _3ac));
+    ENSURE(!r.gt(_3ac, ab));
+    ENSURE(!r.gt(a, ab));
+    ENSURE(r.gt(ab, a));
+    ENSURE(r.gt(_2ab, _3ac));
+    ENSURE(!r.gt(_3ac, _2ab));
     nex* _2a = r.mk_mul(rational(2), a);
-    SASSERT(!r.gt(_2a, _2ab));
-    SASSERT(r.gt(_2ab, _2a));
-    SASSERT(nex_creator::equal(ab, ba));
+    ENSURE(!r.gt(_2a, _2ab));
+    ENSURE(r.gt(_2ab, _2a));
+    ENSURE(nex_creator::equal(ab, ba));
     nex_sum * five_a_pl_one = r.mk_sum(r.mk_mul(rational(5), a), r.mk_scalar(rational(1)));
     nex_mul * poly = r.mk_mul(five_a_pl_one, b);
     nex * p = r.simplify(poly);
     std::cout << "poly = " << *poly << " , p = " << *p << "\n";
+#endif
 }
 
 void test_simplify() {
@@ -142,9 +147,9 @@ void test_simplify() {
     auto two_a_plus_bc = r.mk_mul(r.mk_scalar(rational(2)), a_plus_bc);
     auto simp_two_a_plus_bc = r.simplify(two_a_plus_bc);
     TRACE("nla_test", tout << * simp_two_a_plus_bc << "\n";);
-    SASSERT(nex_creator::equal(simp_two_a_plus_bc, two_a_plus_bc));
+    ENSURE(nex_creator::equal(simp_two_a_plus_bc, two_a_plus_bc));
     auto simp_a_plus_bc = r.simplify(a_plus_bc);
-    SASSERT(to_sum(simp_a_plus_bc)->size() > 1);
+    ENSURE(to_sum(simp_a_plus_bc)->size() > 1);
 
     auto three_ab = r.mk_mul(r.mk_scalar(rational(3)), a, b);
     auto three_ab_square = r.mk_mul(three_ab, three_ab, three_ab);
@@ -153,7 +158,7 @@ void test_simplify() {
     three_ab_square = to_mul(r.simplify(three_ab_square));
     TRACE("nla_test", tout << *three_ab_square << "\n";);
     const rational& s = three_ab_square->coeff();
-    SASSERT(s == rational(27));
+    ENSURE(s == rational(27));
     auto m = r.mk_mul(a, a);
     TRACE("nla_test_", tout << "m = " << *m << "\n";);
     /*
@@ -171,7 +176,7 @@ void test_simplify() {
     TRACE("nla_test", tout << "before simplify e = " << *e << "\n";);
     e = to_sum(r.simplify(e));
     TRACE("nla_test", tout << "simplified e = " << *e << "\n";);
-    SASSERT(e->children().size() > 2);
+    ENSURE(e->children().size() > 2);
     nex_sum * e_m = r.mk_sum();
     for (const nex* ex: to_sum(e)->children()) {
         nex* ce = r.mk_mul(r.clone(ex), r.mk_scalar(rational(3)));        
@@ -290,7 +295,7 @@ void test_cn() {
 //     nex* _6aad = cr.mk_mul(cr.mk_scalar(rational(6)), a, a, d);
 //     nex * clone = cr.clone(cr.mk_sum(_6aad, abcd, aaccd, add, eae, eac, ed));
 //     clone = cr.simplify(clone);
-//     SASSERT(cr.is_simplified(clone));
+//     ENSURE(cr.is_simplified(clone));
 //     TRACE("nla_test", tout << "clone = " << *clone << "\n";);
 //     //    test_cn_on_expr(cr.mk_sum(aad,  abcd, aaccd, add, eae, eac, ed), cn);
 //     test_cn_on_expr(to_sum(clone), cn);
@@ -308,11 +313,6 @@ void test_cn() {
 namespace lp {
 unsigned seed = 1;
 
-class my_bound_propagator : public lp_bound_propagator {
-public:
-    my_bound_propagator(lar_solver & ls): lp_bound_propagator(ls) {}
-    void consume(mpq const& v, lp::constraint_index j) override {}
-};
 
 random_gen g_rand;
 static unsigned my_random() {
@@ -2148,6 +2148,7 @@ void test_replace_column() {
 
 
 void setup_args_parser(argument_parser & parser) {
+    parser.add_option_with_help_string("-monics", "test emonics");
     parser.add_option_with_help_string("-nex_order", "test nex order");
     parser.add_option_with_help_string("-nla_cn", "test cross nornmal form");
     parser.add_option_with_help_string("-nla_sim", "test nex simplify");
@@ -2679,7 +2680,10 @@ void run_lar_solver(argument_parser & args_parser, lar_solver * solver, mps_read
             return;
         }
         std::cout << "checking randomize" << std::endl;
-        vector<var_index> all_vars = solver->get_list_of_all_var_indices();
+        vector<var_index> all_vars;
+        for (unsigned j = 0; j < solver->number_of_vars(); j++)
+            all_vars.push_back(j);
+        
         unsigned m = all_vars.size();
         if (m > 100)
             m = 100;
@@ -2956,13 +2960,14 @@ void test_term() {
         std::cout << "non optimal" << std::endl;
         return;
     }
-    solver.print_constraints(std::cout);
+    std::cout << solver.constraints();
     std::cout << "\ntableau before cube\n";
-    solver.m_mpq_lar_core_solver.m_r_solver.pretty_print(std::cout);
+    solver.pp(std::cout).print();
     std::cout << "\n";
-    int_solver i_s(&solver);
+    int_solver i_s(solver);
     solver.set_int_solver(&i_s);
-    lia_move m = i_s.find_cube();
+    int_cube cuber(i_s);
+    lia_move m = cuber();
     
     std::cout <<"\n" << lia_move_to_string(m) << std::endl;
     model.clear();
@@ -2972,7 +2977,7 @@ void test_term() {
     }
 
     std::cout << "\ntableu after cube\n";
-    solver.m_mpq_lar_core_solver.m_r_solver.pretty_print(std::cout);
+    solver.pp(std::cout).print();
     std::cout << "Ax_is_correct = " << solver.ax_is_correct() << "\n";
     
 }
@@ -3214,19 +3219,16 @@ void test_bound_propagation() {
 }
 
 void test_int_set() {
-    int_set s(4);
+    u_set s(4);
     s.insert(2);
-    s.print(std::cout);
     s.insert(1);
     s.insert(2);
-    s.print(std::cout);
     lp_assert(s.contains(2));
     lp_assert(s.size() == 2);
     s.erase(2);
     lp_assert(s.size() == 1);
     s.erase(2);
     lp_assert(s.size() == 1);
-    s.print(std::cout);
     s.insert(3);
     s.insert(2);
     s.clear();
@@ -3763,7 +3765,7 @@ void test_larger_generated_hnf() {
 void test_maximize_term() {
     std::cout << "test_maximize_term\n";
     lar_solver solver;
-    int_solver i_solver(&solver); // have to create it too
+    int_solver i_solver(solver); // have to create it too
     unsigned _x = 0;
     unsigned _y = 1;
     var_index x = solver.add_var(_x, false);
@@ -3781,7 +3783,7 @@ void test_maximize_term() {
     solver.add_var_bound(term_2x_pl_2y, LE, mpq(5));
     solver.find_feasible_solution();
     lp_assert(solver.get_status() == lp_status::OPTIMAL);
-    solver.print_constraints(std::cout);
+    std::cout << solver.constraints();
     std::unordered_map<var_index, mpq> model;
     solver.get_model(model);
     for (auto p : model) {
@@ -3844,6 +3846,11 @@ void test_lp_local(int argn, char**argv) {
     }
 
     args_parser.print();
+    if (args_parser.option_is_used("-monics")) {
+        nla::test_monics();
+        return finalize(0);
+    }
+
     
     if (args_parser.option_is_used("-nla_cn")) {
 #ifdef Z3DEBUG

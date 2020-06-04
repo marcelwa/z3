@@ -37,7 +37,7 @@ Revision History:
 #include "qe/qe_vartest.h"
 #include "qe/qe_solve_plugin.h"
 
-namespace {
+namespace qel {
 
     bool occurs_var(unsigned idx, expr* e) {
         if (is_ground(e)) return false;
@@ -616,6 +616,8 @@ namespace {
         }
 
         bool is_unconstrained(var* x, expr* t, unsigned i, expr_ref_vector const& conjs) {
+            sort* s = m.get_sort(x);
+            if (!m.is_fully_interp(s) || !s->get_num_elements().is_infinite()) return false;
             bool occ = occurs_var(x->get_idx(), t);
             for (unsigned j = 0; !occ && j < conjs.size(); ++j) {
                 occ = (i != j) && occurs_var(x->get_idx(), conjs[j]);
@@ -680,8 +682,7 @@ namespace {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
         }
 
     public:
@@ -868,8 +869,7 @@ namespace {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
     }
 
     public:
@@ -2142,8 +2142,7 @@ namespace fm {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
         }
     public:
 
@@ -2243,7 +2242,7 @@ class qe_lite::impl {
                 q,
                 q->get_num_patterns(), new_patterns,
                 q->get_num_no_patterns(), new_no_patterns, result);
-            m_imp.m_rewriter(result);
+            m_imp.m_rewriter(result, result, result_pr);
             return true;
         }
     };
@@ -2252,16 +2251,16 @@ class qe_lite::impl {
         elim_cfg m_cfg;
     public:
         elim_star(impl& i):
-            rewriter_tpl<elim_cfg>(i.m, false, m_cfg),
+            rewriter_tpl<elim_cfg>(i.m, i.m.proofs_enabled(), m_cfg),
             m_cfg(i)
         {}
     };
 
 private:
     ast_manager& m;
-    eq_der       m_der;
-    fm::fm       m_fm;
-    ar_der       m_array_der;
+    qel::eq_der  m_der;
+    qel::fm::fm  m_fm;
+    qel::ar_der  m_array_der;
     elim_star    m_elim_star;
     th_rewriter  m_rewriter;
 
@@ -2332,9 +2331,11 @@ public:
     }
 
     void operator()(expr_ref& fml, proof_ref& pr) {
-        expr_ref tmp(m);
-        m_elim_star(fml, tmp, pr);
-        fml = std::move(tmp);
+        if (!m.proofs_enabled()) {
+            expr_ref tmp(m);
+            m_elim_star(fml, tmp, pr);
+            fml = std::move(tmp);
+        }
     }
 
     void operator()(uint_set const& index_set, bool index_of_bound, expr_ref& fml) {
@@ -2407,8 +2408,7 @@ class qe_lite_tactic : public tactic {
     qe_lite                  m_qe;
 
     void checkpoint() {
-        if (m.canceled())
-            throw tactic_exception(m.limit().get_cancel_msg());
+        tactic::checkpoint(m);
     }
 
 #if 0
@@ -2469,7 +2469,6 @@ public:
 
     void operator()(goal_ref const & g,
                     goal_ref_buffer & result) override {
-        SASSERT(g->is_well_sorted());
         tactic_report report("qe-lite", *g);
         proof_ref new_pr(m);
         expr_ref new_f(m);
@@ -2494,14 +2493,12 @@ public:
                 }
             }
             if (f != new_f) {
-                TRACE("qe", tout << mk_pp(f, m) << "\n" << new_f << "\n";);
+                TRACE("qe", tout << mk_pp(f, m) << "\n" << new_f << "\n" << new_pr << "\n";);
                 g->update(i, new_f, new_pr, g->dep(i));
             }
         }
         g->inc_depth();
         result.push_back(g.get());
-        TRACE("qe", g->display(tout););
-        SASSERT(g->is_well_sorted());
     }
 
     void collect_statistics(statistics & st) const override {

@@ -28,46 +28,84 @@ Notes:
 #include <sstream>
 #include <algorithm>
 
+#include "util/util.h"
 #include "ast/ast.h"
 #include "ast/occurs.h"
 #include "ast/ast_pp.h"
-#include "ast/rewriter/bool_rewriter.h"
-#include "muz/base/dl_util.h"
-#include "ast/for_each_expr.h"
-#include "smt/params/smt_params.h"
-#include "model/model.h"
-#include "model/model_evaluator.h"
-#include "util/ref_vector.h"
-#include "ast/rewriter/rewriter.h"
-#include "ast/rewriter/rewriter_def.h"
-#include "util/util.h"
-#include "muz/spacer/spacer_manager.h"
-#include "muz/spacer/spacer_util.h"
-#include "ast/rewriter/expr_replacer.h"
-#include "model/model_smt2_pp.h"
 #include "ast/scoped_proof.h"
-#include "qe/qe_lite.h"
-#include "muz/spacer/spacer_qe_project.h"
-#include "model/model_pp.h"
+#include "ast/for_each_expr.h"
+#include "ast/rewriter/bool_rewriter.h"
 #include "ast/rewriter/expr_safe_replace.h"
-
 #include "ast/array_decl_plugin.h"
 #include "ast/arith_decl_plugin.h"
 #include "ast/datatype_decl_plugin.h"
 #include "ast/bv_decl_plugin.h"
+#include "ast/rewriter/rewriter.h"
+#include "ast/rewriter/rewriter_def.h"
+#include "ast/rewriter/factor_equivs.h"
+#include "ast/rewriter/expr_replacer.h"
 
-#include "muz/spacer/spacer_legacy_mev.h"
+
+#include "smt/params/smt_params.h"
+#include "model/model.h"
+#include "model/model_evaluator.h"
+#include "model/model_smt2_pp.h"
+#include "model/model_pp.h"
+
+#include "qe/qe_lite.h"
 #include "qe/qe_mbp.h"
+#include "qe/qe_term_graph.h"
 
 #include "tactic/tactical.h"
 #include "tactic/core/propagate_values_tactic.h"
 #include "tactic/arith/propagate_ineqs_tactic.h"
 #include "tactic/arith/arith_bounds_tactic.h"
 
-#include "ast/rewriter/factor_equivs.h"
-#include "qe/qe_term_graph.h"
+#include "muz/base/dl_util.h"
+#include "muz/spacer/spacer_legacy_mev.h"
+#include "muz/spacer/spacer_qe_project.h"
+#include "muz/spacer/spacer_manager.h"
+#include "muz/spacer/spacer_util.h"
 
 namespace spacer {
+
+    bool is_clause(ast_manager &m, expr *n) {
+      if (spacer::is_literal(m, n))
+        return true;
+      if (m.is_or(n)) {
+        for (expr *arg : *to_app(n)){
+          if (!spacer::is_literal(m, arg))
+            return false;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool is_literal(ast_manager &m, expr *n) {
+      return spacer::is_atom(m, n) || (m.is_not(n) && spacer::is_atom(m, to_app(n)->get_arg(0)));
+    }
+
+    bool is_atom(ast_manager &m, expr *n) {
+      if (is_quantifier(n) || !m.is_bool(n))
+        return false;
+      if (is_var(n))
+        return true;
+      SASSERT(is_app(n));
+      if (to_app(n)->get_family_id() != m.get_basic_family_id()) {
+        return true;
+      }
+
+      if ((m.is_eq(n) && !m.is_bool(to_app(n)->get_arg(0))) ||
+          m.is_true(n) || m.is_false(n))
+        return true;
+
+      // x=y is atomic if x and y are Bool and atomic
+      expr *e1, *e2;
+      if (m.is_eq(n, e1, e2) && spacer::is_atom(m, e1) && spacer::is_atom(m, e2))
+        return true;
+      return false;
+    }
 
     void subst_vars(ast_manager& m,
                     app_ref_vector const& vars, model& mdl, expr_ref& fml) {
@@ -86,13 +124,13 @@ namespace spacer {
         out << "(define-fun mbp_benchmark_fml () Bool\n  ";
         out << mk_pp(fml, m) << ")\n\n";
 
-        out << "(push)\n"
+        out << "(push 1)\n"
             << "(assert mbp_benchmark_fml)\n"
             << "(check-sat)\n"
             << "(mbp mbp_benchmark_fml (";
         for (auto v : vars) {out << mk_pp(v, m) << " ";}
         out << "))\n"
-            << "(pop)\n"
+            << "(pop 1)\n"
             << "(exit)\n";
     }
 
@@ -345,7 +383,7 @@ namespace {
             expr_ref res(m), v(m);
             v = m_model(e);
             // the literal must have a value
-            SASSERT(m.is_true(v) || m.is_false(v));
+            SASSERT(m.limit().is_canceled() || m.is_true(v) || m.is_false(v));
 
             res = m.is_false(v) ? m.mk_not(e) : e;
 
@@ -371,10 +409,11 @@ namespace {
                 }
             }
 
+            
             if (!m_model.is_true(res)) {
-                verbose_stream() << "Bad literal: " << res << "\n";
+                IF_VERBOSE(2, verbose_stream() 
+                           << "(spacer-model-anomaly: " << res << ")\n");
             }
-            SASSERT(m_model.is_true(res));
             out.push_back(res);
         }
 
@@ -387,7 +426,7 @@ namespace {
 
             if (!is_true && !m.is_false(v)) return;
 
-            expr *na = nullptr, *f1 = nullptr, *f2 = nullptr, *f3 = nullptr;
+            expr* na = nullptr, * f1 = nullptr, * f2 = nullptr, * f3 = nullptr;
 
             SASSERT(!m.is_false(a));
             if (m.is_true(a)) {
@@ -404,8 +443,8 @@ namespace {
             }
             else if (m.is_distinct(a)) {
                 if (!is_true) {
-                    f1 = qe::project_plugin::pick_equality(m, m_model, a);
-                    m_todo.push_back(f1);
+                    expr_ref tmp = qe::project_plugin::pick_equality(m, m_model, a);
+                    m_todo.push_back(tmp);
                 }
                 else if (a->get_num_args() == 2) {
                     add_literal(a, out);
@@ -496,16 +535,21 @@ namespace {
             SASSERT(m_todo.empty());
             if (m_visited.is_marked(e) || !is_app(e)) return;
 
+            // -- keep track of all created expressions to
+            // -- make sure that expression ids are stable
+            expr_ref_vector pinned(m);
+
+            m_todo.reset();
             m_todo.push_back(e);
-            do {
-                e = m_todo.back();
-                if (!is_app(e)) continue;
-                app * a = to_app(e);
+            while(!m_todo.empty()) {
+                pinned.push_back(m_todo.back());
                 m_todo.pop_back();
+                if (!is_app(pinned.back())) continue;
+                app* a = to_app(pinned.back());
                 process_app(a, out);
                 m_visited.mark(a, true);
-            } 
-            while (!m_todo.empty());
+            }
+            m_todo.reset();
         }
 
         bool pick_implicant(const expr_ref_vector &in, expr_ref_vector &out) {
@@ -533,19 +577,20 @@ namespace {
     };
 }
 
-    void compute_implicant_literals(model &mdl,
-                                     expr_ref_vector &formula,
-                                     expr_ref_vector &res) {
+    expr_ref_vector compute_implicant_literals(model &mdl,
+                                     expr_ref_vector &formula) {
         // flatten the formula and remove all trivial literals
 
         // TBD: not clear why there is a dependence on it(other than
         // not handling of Boolean constants by implicant_picker), however,
         // it was a source of a problem on a benchmark
+        expr_ref_vector res(formula.get_manager());
         flatten_and(formula);
-        if (formula.empty()) {return;}
-
-        implicant_picker ipick(mdl);
-        ipick(formula, res);
+        if (!formula.empty()) {
+            implicant_picker ipick(mdl);
+            ipick(formula, res);
+        }
+        return res;
     }
 
     void simplify_bounds_old(expr_ref_vector& cube) {
@@ -935,7 +980,13 @@ namespace {
         for_each_expr(cd, fml);
     }
 
-}
-
+    // set the value of a boolean function to true in model
+    void set_true_in_mdl(model &model, func_decl *f) {
+        SASSERT(f->get_arity() == 0);
+        model.unregister_decl(f);
+        model.register_decl(f, model.get_manager().mk_true());
+        model.reset_eval_cache();
+    }
+} // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;

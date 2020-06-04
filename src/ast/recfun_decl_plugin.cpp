@@ -23,6 +23,7 @@ Revision History:
 #include "ast/expr_functors.h"
 #include "ast/recfun_decl_plugin.h"
 #include "ast/ast_pp.h"
+#include "ast/for_each_expr.h"
 #include "util/scoped_ptr_vector.h"
 
 #define TRACEFN(x) TRACE("recfun", tout << x << '\n';)
@@ -130,8 +131,6 @@ namespace recfun {
             path(nullptr), to_split(nullptr), to_unfold(to_unfold) {}
         branch(choice_lst const * path, ite_lst const * to_split, unfold_lst const * to_unfold) : 
             path(path), to_split(to_split), to_unfold(to_unfold) {}
-        branch(branch const & from) : 
-            path(from.path), to_split(from.to_split), to_unfold(from.to_unfold) {}
     };
 
     // state for computing cases from the RHS of a functions' definition
@@ -215,7 +214,7 @@ namespace recfun {
         unsigned case_idx = 0;
 
         std::string name("case-");       
-        name.append(m_name.bare_str());
+        name.append(m_name.str());
 
         m_vars.append(n_vars, vars);
         m_rhs = rhs;
@@ -238,7 +237,6 @@ namespace recfun {
         st.push_branch(branch(st.mk_unfold_lst(rhs)));        
 
         while (! st.empty()) {
-            TRACEFN("main loop iter");
 
             branch b = st.pop_branch();
 
@@ -253,7 +251,6 @@ namespace recfun {
                 while (! stack.empty()) {
                     expr * e = stack.back();
                     stack.pop_back();
-                    TRACEFN("unfold: " << mk_pp(e, m));
 
                     if (m.is_ite(e)) {
                         // need to do a case split on `e`, forking the search space
@@ -304,7 +301,6 @@ namespace recfun {
                 
                 // substitute, to get rid of `ite` terms
                 expr_ref case_rhs = subst(rhs);
-                TRACEFN("case_rhs: " << case_rhs);
                 for (unsigned i = 0; i < conditions.size(); ++i) {
                     conditions[i] = subst(conditions.get(i));
                 }
@@ -336,13 +332,14 @@ namespace recfun {
 
 
     void util::set_definition(replace& subst, promise_def & d, unsigned n_vars, var * const * vars, expr * rhs) {
-        d.set_definition(subst, n_vars, vars, rhs);
+        expr_ref rhs1 = get_plugin().redirect_ite(subst, n_vars, vars, rhs);        
+        d.set_definition(subst, n_vars, vars, rhs1);
     }
 
-    app_ref util::mk_depth_limit_pred(unsigned d) {
+    app_ref util::mk_num_rounds_pred(unsigned d) {
         parameter p(d);
-        func_decl_info info(m_fid, OP_DEPTH_LIMIT, 1, &p);
-        func_decl* decl = m().mk_const_decl(symbol("recfun-depth-limit"), m().mk_bool_sort(), info);
+        func_decl_info info(m_fid, OP_NUM_ROUNDS, 1, &p);
+        func_decl* decl = m().mk_const_decl(symbol("recfun-num-rounds"), m().mk_bool_sort(), info);
         return app_ref(m().mk_const(decl), m());
     }
 
@@ -356,11 +353,7 @@ namespace recfun {
                 util & u;
                 find(util & u) : u(u) {}
                 bool operator()(expr * e) override {
-                    //return is_app(e) ? u.owns_app(to_app(e)) : false;
-                    if (! is_app(e)) return false;
-
-                    app * a = to_app(e);
-                    return u.is_defined(a);
+                    return is_app(e) && u.is_defined(to_app(e));
                 }
             };
             find f(u);
@@ -445,5 +438,79 @@ namespace recfun {
             UNREACHABLE();
             return nullptr;            
         }
+
+        /**
+         * \brief compute ite nesting depth scores with each sub-expression of e.
+         * associate with each subterm of e its parent terms.
+         * and for every term depth the set of terms with the same depth
+         */
+        void plugin::compute_scores(expr* e, obj_map<expr, unsigned>& scores) {
+            u_map<ptr_vector<expr>> by_depth;
+            obj_map<expr, ptr_vector<expr>> parents;
+            expr_ref tmp(e, m());
+            parents.insert(e, ptr_vector<expr>());
+            for (expr* t : subterms(tmp)) {
+                if (is_app(t)) {
+                    for (expr* arg : *to_app(t)) {
+                        parents.insert_if_not_there(arg, ptr_vector<expr>()).push_back(t);        
+                    }
+                }
+                by_depth.insert_if_not_there(get_depth(t), ptr_vector<expr>()).push_back(t);
+            }
+            unsigned max_depth = get_depth(e);
+            scores.insert(e, 0);
+            // walk deepest terms first.
+            for (unsigned i = max_depth; i > 0; --i) {
+                if (!by_depth.contains(i))
+                    continue;
+                for (expr* t : by_depth[i]) {
+                    unsigned score = 0;
+                    for (expr* parent : parents[t]) {
+                        score += scores[parent];
+                    }
+                    if (m().is_ite(t)) {
+                        score++;
+                        TRACEFN("score " << mk_pp(t, m()) << ": " << score);
+                    }
+                    scores.insert(t, score);
+                }
+            }
+        }
+
+        expr_ref plugin::redirect_ite(replace& subst, unsigned n, var * const* vars, expr * e) {
+            expr_ref result(e, m());
+            while (true) {
+                obj_map<expr, unsigned> scores;
+                compute_scores(result, scores);
+                unsigned max_score = 0;
+                expr* max_expr = nullptr;
+                for (auto const& kv : scores) {
+                    if (m().is_ite(kv.m_key) && kv.m_value > max_score) {
+                        max_expr = kv.m_key;
+                        max_score = kv.m_value;
+                    }
+                }
+                if (max_score <= 4) {
+                    break;
+                }
+                ptr_vector<sort> domain;
+                ptr_vector<expr> args;
+                for (unsigned i = 0; i < n; ++i) {
+                    domain.push_back(vars[i]->get_sort());
+                    args.push_back(vars[i]);
+                }
+                                
+                symbol fresh_name(m().mk_fresh_id()); 
+                auto pd = mk_def(fresh_name, n, domain.c_ptr(), m().get_sort(max_expr));
+                func_decl* f = pd.get_def()->get_decl();
+                expr_ref new_body(m().mk_app(f, n, args.c_ptr()), m());
+                set_definition(subst, pd, n, vars, max_expr);
+                subst.insert(max_expr, new_body);
+                result = subst(result);                
+                TRACEFN("substituted " << mk_pp(max_expr, m()) << " -> " << new_body << "\n" << result);
+            }
+            return result;
+        }
+
     }
 }

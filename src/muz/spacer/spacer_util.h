@@ -106,9 +106,8 @@ namespace spacer {
 
     // TBD: sort out
     void expand_literals(ast_manager &m, expr_ref_vector& conjs);
-    void compute_implicant_literals(model &mdl,
-                                    expr_ref_vector &formula,
-                                    expr_ref_vector &res);
+    expr_ref_vector compute_implicant_literals(model &mdl,
+                                    expr_ref_vector &formula);
     void simplify_bounds (expr_ref_vector &lemmas);
     void normalize(expr *e, expr_ref &out, bool use_simplify_bounds = true, bool factor_eqs = false);
 
@@ -137,6 +136,13 @@ namespace spacer {
     mk_epp(ast *t, ast_manager &m, unsigned indent = 0, unsigned num_vars = 0, char const * var_prefix = nullptr);
         void rw(expr *e, expr_ref &out);
     };
+
+    bool is_clause(ast_manager &m, expr *n); 
+    bool is_literal(ast_manager &m, expr *n);
+    bool is_atom(ast_manager &m, expr *n);
+
+    // set f to true in model
+    void set_true_in_mdl(model &model, func_decl *f);
 }
 
 #endif

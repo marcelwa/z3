@@ -2,7 +2,6 @@ z3_add_component(lp
   SOURCES
     binary_heap_priority_queue.cpp
     binary_heap_upair_queue.cpp
-    lp_bound_propagator.cpp
     core_solver_pretty_printer.cpp
     dense_matrix.cpp
     eta_matrix.cpp
@@ -10,8 +9,12 @@ z3_add_component(lp
     factorization.cpp
     factorization_factory_imp.cpp
     gomory.cpp
+    hnf_cutter.cpp
     horner.cpp
     indexed_vector.cpp
+    int_branch.cpp
+    int_cube.cpp
+    int_gcd_test.cpp
     int_solver.cpp
     lar_solver.cpp
     lar_core_solver.cpp
@@ -26,6 +29,7 @@ z3_add_component(lp
     lp_utils.cpp
     matrix.cpp
     mon_eq.cpp
+    monomial_bounds.cpp
     nex_creator.cpp
     nla_basics_lemmas.cpp
     nla_common.cpp
@@ -47,9 +51,6 @@ z3_add_component(lp
     util
     polynomial
     nlsat
-  PYG_FILES
-  	lp_params.pyg
-  	nla_params.pyg
 )
 
 include_directories(${src_SOURCE_DIR})

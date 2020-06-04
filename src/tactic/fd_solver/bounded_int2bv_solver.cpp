@@ -252,7 +252,7 @@ private:
             SASSERT(is_uninterp_const(e));
             func_decl* f = to_app(e)->get_decl();
 
-            if (bm.has_lower(e, lo, s1) && bm.has_upper(e, hi, s2) && lo <= hi && !s1 && !s2) {
+            if (bm.has_lower(e, lo, s1) && bm.has_upper(e, hi, s2) && lo <= hi && !s1 && !s2 && m_arith.is_int(e)) {
                 func_decl* fbv;
                 rational offset;
                 if (!m_int2bv.find(f, fbv)) {
@@ -329,7 +329,7 @@ private:
             for (expr* a : m_assertions) {
                 sub(a, fml1);
                 m_rewriter(fml1, fml2, proof);
-                if (m.canceled()) {
+                if (!m.inc()) {
                     m_rewriter.reset();
                     return;
                 }

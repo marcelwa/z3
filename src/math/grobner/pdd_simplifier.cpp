@@ -119,6 +119,9 @@ namespace dd {
             if (has_conflict) {
                 break;
             }
+            if (s.is_trivial(*src)) {
+                continue;
+            }
             unsigned v = src->poly().var();
             equation_vector const& uses = use_list[v];
             TRACE("dd.solver", 
@@ -152,8 +155,8 @@ namespace dd {
                     s.push_equation(solver::to_simplify, dst);
                 }
                 // v has been eliminated.
-                //                SASSERT(!dst->poly().free_vars().contains(v));
-                add_to_use(dst, use_list);                
+                // SASSERT(!dst->poly().free_vars().contains(v));
+                add_to_use(dst, use_list);  
             }          
             if (all_reduced) {
                 linear[j++] = src;              
@@ -188,8 +191,7 @@ namespace dd {
         for (equation* eq1 : s.m_to_simplify) {
             SASSERT(eq1->state() == solver::to_simplify);
             pdd p = eq1->poly();
-            auto* e = los.insert_if_not_there2(p.lo().index(), eq1);
-            equation* eq2 = e->get_data().m_value;
+            equation* eq2 = los.insert_if_not_there(p.lo().index(), eq1);
             pdd q = eq2->poly();
             if (eq2 != eq1 && (p.hi().is_val() || q.hi().is_val()) && !p.lo().is_val()) {
                 *eq1 = p - eq2->poly();

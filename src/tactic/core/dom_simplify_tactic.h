@@ -41,7 +41,7 @@ private:
     tree_t                m_tree;
 
     void add_edge(tree_t& tree, expr * src, expr* dst) {        
-        tree.insert_if_not_there2(src, ptr_vector<expr>())->get_data().m_value.push_back(dst);        
+        tree.insert_if_not_there(src, ptr_vector<expr>()).push_back(dst);        
     }
 
     void compute_post_order();
@@ -105,15 +105,17 @@ class dom_simplify_tactic : public tactic {
     expr_ref simplify_rec(expr* t);
     expr_ref simplify_arg(expr* t);
     expr_ref simplify_ite(app * ite);
-    expr_ref simplify_and(app * ite) { return simplify_and_or(true, ite); }
-    expr_ref simplify_or(app * ite) { return simplify_and_or(false, ite); }
-    expr_ref simplify_and_or(bool is_and, app * ite);
+    expr_ref simplify_and(app * e) { return simplify_and_or(true, e); }
+    expr_ref simplify_or(app * e) { return simplify_and_or(false, e); }
+    expr_ref simplify_and_or(bool is_and, app * e);
+    expr_ref simplify_not(app * e);
     void simplify_goal(goal& g);
 
     bool is_subexpr(expr * a, expr * b);
 
     expr_ref get_cached(expr* t) { expr* r = nullptr; if (!m_result.find(t, r)) r = t; return expr_ref(r, m); }
     void cache(expr *t, expr* r) { m_result.insert(t, r); m_trail.push_back(r); }
+    void reset_cache() { m_result.reset(); }
 
     ptr_vector<expr> const & tree(expr * e);
     expr* idom(expr *e) const { return m_dominators.idom(e); }

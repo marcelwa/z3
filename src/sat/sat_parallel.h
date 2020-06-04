@@ -24,7 +24,7 @@ Revision History:
 #include "util/map.h"
 #include "util/rlimit.h"
 #include "util/scoped_ptr_vector.h"
-#include <mutex>
+#include "util/mutex.h"
 
 namespace sat {
 
@@ -36,7 +36,7 @@ namespace sat {
             unsigned        m_size;
             unsigned        m_tail;
             unsigned_vector m_heads;
-            svector<bool>   m_at_end;
+            bool_vector   m_at_end;
             void next(unsigned& index);
             unsigned get_owner(unsigned index) const { return m_vectors[index]; }
             unsigned get_length(unsigned index) const { return m_vectors[index+1]; }
@@ -62,7 +62,7 @@ namespace sat {
         index_set      m_unit_set;
         literal_vector m_lits;
         vector_pool    m_pool;
-        std::mutex     m_mux;
+        mutex          m_mux;
 
         // for exchange with local search:
         unsigned           m_num_clauses;

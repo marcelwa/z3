@@ -1,21 +1,8 @@
 /*++
   Copyright (c) 2017 Microsoft Corporation
 
-  Module Name:
-
-  <name>
-
-  Abstract:
-
-  <abstract>
-
   Author:
-  Nikolaj Bjorner (nbjorner)
-  Lev Nachmanson (levnach)
-
-  Revision History:
-
-
+   Lev Nachmanson (levnach)
   --*/
 #include "util/lbool.h"
 #include "math/lp/nex_creator.h"
@@ -111,7 +98,9 @@ bool nex_creator::gt_on_powers_mul_same_degree(const T& a, const nex_mul& b) con
     bool ret = false;
     unsigned a_pow = a.begin()->pow();
     unsigned b_pow = b.begin()->pow();
-    for (auto it_a = a.begin(), it_b = b.begin(); it_a != a.end() && it_b != b.end(); ) {
+    auto it_a = a.begin();
+    auto it_b = b.begin();
+    for (; it_a != a.end() && it_b != b.end(); ) {
         if (gt(it_a->e(), it_b->e())){
             ret = true;
             break;
@@ -156,7 +145,12 @@ bool nex_creator::gt_on_var_nex(const nex_var& a, const nex& b) const {
         return b.get_degree() <= 1 && gt_on_var_nex(a, *b.to_mul()[0].e());
     case expr_type::SUM:
         SASSERT(b.size() > 1);
-        return gt(&a, b.to_sum()[0]);        
+        if(gt(&a, b.to_sum()[0]))
+            return true;
+        if (gt(b.to_sum()[0], &a ))
+            return false;
+        return true;
+           
     default:
         UNREACHABLE();
         return false;
@@ -599,7 +593,6 @@ bool nex_creator::is_simplified(const nex& e) const {
     return true;
 }
 
-#ifdef Z3DEBUG
 unsigned nex_creator::find_sum_in_mul(const nex_mul* a) const {
     for (unsigned j = 0; j < a->size(); j++)
         if ((*a)[j].e()->is_sum())
@@ -673,5 +666,4 @@ bool nex_creator::equal(const nex* a, const nex* b) {
     TRACE("grobner_d", tout << "b = " << *b << ", canonized b = " << *cb << "\n";);
     return !(cn.gt(ca, cb) || cn.gt(cb, ca));
 }
-#endif
 

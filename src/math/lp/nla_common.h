@@ -1,20 +1,9 @@
 /*++
   Copyright (c) 2017 Microsoft Corporation
 
-  Module Name:
-
-  <name>
-
-  Abstract:
-
-  <abstract>
-
   Author:
-  Nikolaj Bjorner (nbjorner)
-  Lev Nachmanson (levnach)
-
-  Revision History:
-
+   Lev Nachmanson (levnach)
+   Nikolaj Bjorner (nbjorner)
 
   --*/
 #pragma once
@@ -43,50 +32,41 @@ inline llc negate(llc cmp) {
     return cmp; // not reachable
 }
 
+inline llc swap_side(llc cmp) {
+    switch(cmp) {
+    case llc::LE: return llc::GE;
+    case llc::LT: return llc::GT;
+    case llc::GE: return llc::LE;
+    case llc::GT: return llc::LT;
+    case llc::EQ: return llc::EQ;
+    case llc::NE: return llc::NE;
+    default: SASSERT(false);
+    };
+    return cmp; // not reachable
+}
+
 class core;
 class intervals;
 struct common {
-    core*                                        m_core;
+    core&                                        m_core;
     nex_creator                                  m_nex_creator;
-    intervals*                                   m_intervals;
     
-    common(core* c, intervals* i): m_core(c), m_intervals(i) {}
-    core& c() { return *m_core; }
-    const core& c() const { return *m_core; }
-    core& _() { return *m_core; }
-    const core& _() const { return *m_core; }
+    common(core* c): m_core(*c) {}
+    core& c() { return m_core; }
+    const core& c() const { return m_core; }
+    core& _() { return m_core; }
+    const core& _() const { return m_core; }
 
     template <typename T> rational val(T const& t) const;
     rational val(lpvar) const;
-    rational rval(const monic&) const;
+    rational var_val(monic const& m) const; // value obtained from variable representing monomial
+    rational mul_val(monic const& m) const; // value obtained from multiplying variables of monomial
     template <typename T> lpvar var(T const& t) const;
+    // this needed in can_create_lemma_for_mon_neutral_from_factors_to_monic_model_based when iterating
+    // over a monic
+    lpvar var(lpvar j) const { return j; }
     bool done() const;
-    template <typename T> void explain(const T&);
-    void explain(lpvar);
-    void add_empty_lemma();
     template <typename T> bool canonize_sign(const T&) const;
-    void mk_ineq(lp::lar_term& t, llc cmp, const rational& rs);
-    void mk_ineq(const rational& a, lpvar j, const rational& b, lpvar k, llc cmp, const rational& rs);
-
-    void mk_ineq(lpvar j, const rational& b, lpvar k, llc cmp, const rational& rs);
-
-    void mk_ineq(lpvar j, const rational& b, lpvar k, llc cmp);
-
-    void mk_ineq(const rational& a, lpvar j, const rational& b, lpvar k, llc cmp);
-    void mk_ineq(bool a, lpvar j, bool b, lpvar k, llc cmp);
-
-    void mk_ineq(const rational& a ,lpvar j, lpvar k, llc cmp, const rational& rs);
-
-    void mk_ineq(lpvar j, lpvar k, llc cmp, const rational& rs);
-
-    void mk_ineq(lpvar j, llc cmp, const rational& rs);
-
-    void mk_ineq(const rational& a, lpvar j, llc cmp, const rational& rs);
-    void mk_ineq(const rational& a, lpvar j, llc cmp);
-
-    void mk_ineq(lpvar j, llc cmp);
-
-    std::ostream& print_lemma(std::ostream&) const;
 
     template <typename T>
     std::ostream& print_product(const T & m, std::ostream& out) const;

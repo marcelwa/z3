@@ -49,8 +49,9 @@ public:
     bool inc(unsigned offset);
     uint64_t count() const;
 
-
-    bool get_cancel_flag() const { return m_cancel > 0 && !m_suspend; }
+    bool suspended() const { return m_suspend;  }
+    inline bool not_canceled() const { return (m_cancel == 0 && (m_limit == 0 || m_count <= m_limit)) || m_suspend; }
+    inline bool is_canceled() const { return !not_canceled(); }
     char const* get_cancel_msg() const;
     void cancel();
     void reset_cancel();

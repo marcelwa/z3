@@ -15,6 +15,7 @@
 #include "util/region.h"
 #include "util/debug.h"
 #include "util/util.h"
+#include "util/lbool.h"
 #include "util/vector.h"
 #include <algorithm>
 #include <cstring>
@@ -40,10 +41,13 @@ namespace sat {
         uint64_t table_mask() const { return (1ull << (1ull << m_size)) - 1ull; }
 
     public:
-        cut(): m_filter(0), m_size(0), m_table(0), m_dont_care(0) {}
+        cut(): m_filter(0), m_size(0), m_table(0), m_dont_care(0) {
+            m_elems[0] = m_elems[1] = m_elems[2] = m_elems[3] = m_elems[4] = 0;
+        }
 
         cut(unsigned id): m_filter(1u << (id & 0x1F)), m_size(1), m_table(2), m_dont_care(0) { 
             m_elems[0] = id; 
+            m_elems[1] = m_elems[2] = m_elems[3] = m_elems[4] = 0;
         }
 
         cut(cut const& other) {
@@ -62,6 +66,8 @@ namespace sat {
         cut_val eval(cut_eval const& env) const;
 
         unsigned size() const { return m_size; }
+
+        unsigned filter() const { return m_filter; }
 
         static unsigned max_cut_size() { return 5; }
 
@@ -157,7 +163,15 @@ namespace sat {
             return true;
         }
 
+        void remove_elem(unsigned i);
+
+        static uint64_t effect_mask(unsigned i);
+
         std::ostream& display(std::ostream& out) const;
+
+        static std::ostream& display_table(std::ostream& out, unsigned num_input, uint64_t table);
+
+        static std::string table2string(unsigned num_input, uint64_t table);
     };
 
     class cut_set {
@@ -189,6 +203,7 @@ namespace sat {
             std::swap(m_cuts, other.m_cuts); 
         }
         void evict(on_update_t& on_del, unsigned idx);
+        void evict(on_update_t& on_del, cut const& c);
 
         std::ostream& display(std::ostream& out) const;
     };

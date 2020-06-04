@@ -60,7 +60,7 @@ namespace smt {
         bool is_array_sort(enode const* n) const { return is_array_sort(n->get_owner()); }
         bool is_set_has_size(enode const* n) const { return is_set_has_size(n->get_owner()); }
         bool is_set_carde(enode const* n) const { return is_set_card(n->get_owner()); }
-
+        bool is_select_arg(enode* r);
 
         app * mk_select(unsigned num_args, expr * const * args);
         app * mk_store(unsigned num_args, expr * const * args);
@@ -207,7 +207,7 @@ namespace smt {
         model_value_proc * mk_value(enode * n, model_generator & m) override;
         bool include_func_interp(func_decl* f) override;
     public:
-        theory_array_base(ast_manager & m);
+        theory_array_base(context& ctx);
         ~theory_array_base() override { restore_sorts(0); }
     };
 

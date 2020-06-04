@@ -129,7 +129,7 @@ func_decl * array_decl_plugin::mk_const(sort * s, unsigned arity, sort * const *
         m_manager->raise_exception("invalid const array definition, parameter is not an array sort");
         return nullptr;
     }
-    if (!m_manager->compatible_sorts(get_array_range(s), domain[0])) {
+    if (get_array_range(s) != domain[0]) {
         m_manager->raise_exception("invalid const array definition, sort mismatch between array range and argument");
         return nullptr;
     }
@@ -586,8 +586,10 @@ void array_decl_plugin::get_op_names(svector<builtin_name>& op_names, symbol con
         op_names.push_back(builtin_name("subset",OP_SET_SUBSET));
         op_names.push_back(builtin_name("as-array", OP_AS_ARRAY));
         op_names.push_back(builtin_name("array-ext", OP_ARRAY_EXT));
+#if 0
         op_names.push_back(builtin_name("set-has-size", OP_SET_HAS_SIZE));
         op_names.push_back(builtin_name("card", OP_SET_CARD));
+#endif
     }
 }
 

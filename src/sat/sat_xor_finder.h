@@ -37,7 +37,6 @@ namespace sat {
             clause_filter(unsigned f, clause* cp):
                 m_filter(f), m_clause(cp) {}
         };
-        typedef svector<bool> bool_vector;
         unsigned                m_max_xor_size;
         vector<svector<clause_filter>>   m_clause_filters;      // index of clauses.
         unsigned                m_combination;  // bit-mask of parities that have been found
@@ -49,7 +48,7 @@ namespace sat {
         clause_vector           m_removed_clauses;
         std::function<void (literal_vector const& lits)> m_on_xor;
 
-        inline void set_combination(unsigned mask) { m_combination |= (1 << mask); }
+        void set_combination(unsigned mask);
         inline bool get_combination(unsigned mask) const { return (m_combination & (1 << mask)) != 0; }
         void extract_xor(clause& c);
         void add_xor(bool parity, clause& c);

@@ -31,7 +31,7 @@ Revision History:
 #include "sat/sat_simplifier.h"
 #include "sat/sat_scc.h"
 #include "sat/sat_asymm_branch.h"
-#include "sat/sat_aig_simplifier.h"
+#include "sat/sat_cut_simplifier.h"
 #include "sat/sat_probing.h"
 #include "sat/sat_mus.h"
 #include "sat/sat_binspr.h"
@@ -89,7 +89,7 @@ namespace sat {
         config                  m_config;
         stats                   m_stats;
         scoped_ptr<extension>   m_ext;
-        scoped_ptr<aig_simplifier> m_aig_simplifier;
+        scoped_ptr<cut_simplifier> m_cut_simplifier;
         parallel*               m_par;
         drat                    m_drat;          // DRAT for generating proofs
         clause_allocator        m_cls_allocator[2];
@@ -118,11 +118,11 @@ namespace sat {
         vector<watch_list>      m_watches;
         svector<lbool>          m_assignment;
         svector<justification>  m_justification; 
-        svector<bool>           m_decision;
-        svector<bool>           m_mark;
-        svector<bool>           m_lit_mark;
-        svector<bool>           m_eliminated;
-        svector<bool>           m_external;
+        bool_vector             m_decision;
+        bool_vector             m_mark;
+        bool_vector             m_lit_mark;
+        bool_vector             m_eliminated;
+        bool_vector             m_external;
         unsigned_vector         m_touched;
         unsigned                m_touch_index;
         literal_vector          m_replay_assign;
@@ -137,9 +137,9 @@ namespace sat {
         int                     m_action;
         double                  m_step_size;
         // phase
-        svector<bool>           m_phase; 
-        svector<bool>           m_best_phase;
-        svector<bool>           m_prev_phase;
+        bool_vector             m_phase; 
+        bool_vector             m_best_phase;
+        bool_vector             m_prev_phase;
         svector<char>           m_assigned_since_gc;
         search_state            m_search_state; 
         unsigned                m_search_unsat_conflicts;
@@ -207,7 +207,7 @@ namespace sat {
         friend class scc;
         friend class ba_solver;
         friend class anf_simplifier;
-        friend class aig_simplifier;
+        friend class cut_simplifier;
         friend class parallel;
         friend class lookahead;
         friend class local_search;
@@ -220,6 +220,7 @@ namespace sat {
         friend class xor_finder;
         friend class aig_finder;
         friend class lut_finder;
+        friend class npn3_finder;
     public:
         solver(params_ref const & p, reslimit& l);
         ~solver() override;
@@ -401,7 +402,7 @@ namespace sat {
         bool is_incremental() const { return m_config.m_incremental; }
         extension* get_extension() const override { return m_ext.get(); }
         void       set_extension(extension* e) override;
-        aig_simplifier* get_aig_simplifier() override { return m_aig_simplifier.get(); }
+        cut_simplifier* get_cut_simplifier() override { return m_cut_simplifier.get(); }
         bool       set_root(literal l, literal r);
         void       flush_roots();
         typedef std::pair<literal, literal> bin_clause;
@@ -444,7 +445,7 @@ namespace sat {
         literal_vector const& get_core() const override { return m_core; }
         model_converter const & get_model_converter() const { return m_mc; }
         void flush(model_converter& mc) override { mc.flush(m_mc); }
-        void set_model(model const& mdl);
+        void set_model(model const& mdl, bool is_current);
         char const* get_reason_unknown() const override { return m_reason_unknown.c_str(); }
         bool check_clauses(model const& m) const;
         bool is_assumption(bool_var v) const;

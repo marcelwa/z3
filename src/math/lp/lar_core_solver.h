@@ -29,7 +29,7 @@ Revision History:
 #include "math/lp/lp_primal_core_solver.h"
 #include "math/lp/stacked_vector.h"
 #include "math/lp/lar_solution_signature.h"
-#include "math/lp/stacked_value.h"
+#include "util/stacked_value.h"
 namespace lp {
 
 class lar_core_solver  {
@@ -631,7 +631,7 @@ public:
         for (unsigned i = 0; i < m_r_A.row_count(); i++) {
             auto & row = m_r_A.m_rows[i];
             for (row_cell<mpq> & c : row) {
-                A.add_new_element(i, c.var(), c.get_val().get_double());
+                A.add_new_element(i, c.var(), c.coeff().get_double());
             }
         }
     }

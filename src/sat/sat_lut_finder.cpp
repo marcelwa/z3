@@ -32,7 +32,9 @@ namespace sat {
         // max_size = 6 -> 64 bits
         SASSERT(sizeof(m_combination)*8 >= (1ull << static_cast<uint64_t>(max_size)));
         init_clause_filter();
-        for (unsigned i = 0; i <= 6; ++i) init_mask(i);
+        for (unsigned i = 0; i <= 6; ++i) {
+            m_masks[i] = cut::effect_mask(i);
+        }
         m_var_position.resize(s.num_vars());
         for (clause* cp : clauses) {
             cp->unmark_used();
@@ -59,7 +61,13 @@ namespace sat {
         s.init_visited();
         unsigned mask = 0, i = 0;        
         m_vars.reset();
+        m_clause.reset();
         for (literal l : c) {
+            m_clause.push_back(l);
+        }
+        // ensure that variables in returned LUT are sorted
+        std::sort(m_clause.begin(), m_clause.end());
+        for (literal l : m_clause) {
             m_vars.push_back(l.var());
             m_var_position[l.var()] = i;
             s.mark_visited(l.var());
@@ -67,7 +75,6 @@ namespace sat {
         }
         m_clauses_to_remove.reset();
         m_clauses_to_remove.push_back(&c);
-        m_clause.resize(c.size());
         m_combination = 0;
         m_num_combinations = 0;
         set_combination(mask);
@@ -108,6 +115,11 @@ namespace sat {
         m_removed_clauses.append(m_clauses_to_remove);
         bool_var v;
         uint64_t lut = convert_combination(m_vars, v);
+        TRACE("aig_simplifier",
+              for (clause* cp : m_clauses_to_remove) {
+                  tout << *cp << "\n" << v << ": " << m_vars << "\n";
+              }
+              display_mask(tout, lut, 1u << m_vars.size()) << "\n";);
         m_on_lut(lut, m_vars, v);
     }
 
@@ -132,7 +144,8 @@ namespace sat {
 
     bool lut_finder::extract_lut(clause& c2) {
         for (literal l : c2) {            
-            if (!s.is_visited(l.var())) return false;
+            if (!s.is_visited(l.var())) 
+                return false;
         }
         if (c2.size() == m_vars.size()) {
             m_clauses_to_remove.push_back(&c2);
@@ -161,6 +174,13 @@ namespace sat {
         return update_combinations(mask);
     }
 
+    void lut_finder::set_combination(unsigned mask) {
+        if (!get_combination(mask)) { 
+            m_combination |= (1ull << mask); 
+            m_num_combinations++;
+        }
+    }
+
     bool lut_finder::update_combinations(unsigned mask) {
         unsigned num_missing = m_missing.size();
         for (unsigned k = 0; k < (1ul << num_missing); ++k) {
@@ -178,36 +198,11 @@ namespace sat {
     bool lut_finder::lut_is_defined(unsigned sz) {
         if (m_num_combinations < (1ull << (sz/2))) 
             return false;
-        for (unsigned i = 0; i < sz; ++i) {
+        for (unsigned i = sz; i-- > 0; ) {
             if (lut_is_defined(i, sz)) 
                 return true;
         }
         return false;
-    }
-
-    /**
-     * \brief create the masks
-     * i = 0: 101010101010101
-     * i = 1: 1100110011001100
-     * i = 2: 1111000011110000
-     * i = 3: 111111110000000011111111
-     */
-
-    void lut_finder::init_mask(unsigned i) {
-        SASSERT(i <= 6);
-        uint64_t m = 0;
-        if (i == 6) {
-            m = ~((uint64_t)0);
-        }
-        else {
-            m = (1ull << (1u << i)) - 1;   // i = 0: m = 1
-            unsigned w = 1u << (i + 1);    // i = 0: w = 2
-            while (w < 64) {
-                m |= (m << w);             // i = 0: m = 1 + 4
-                w *= 2;
-            }
-        }
-        m_masks[i] = m;
     }
 
     /**
@@ -216,7 +211,7 @@ namespace sat {
     bool lut_finder::lut_is_defined(unsigned i, unsigned sz) {
         uint64_t c = m_combination | (m_combination >> (1ull << (uint64_t)i));
         uint64_t m = m_masks[i];
-        if (sz < 6) m &= ((1ull << sz) - 1);
+        if (sz < 6) m &= ((1ull << (1ull << sz)) - 1);
         return (c & m) == m;
     }
 
@@ -229,8 +224,8 @@ namespace sat {
 
     uint64_t lut_finder::convert_combination(bool_var_vector& vars, bool_var& v) {
         SASSERT(lut_is_defined(vars.size()));
-        unsigned i = 0, j = 0;
-        for (; i < vars.size(); ++i) {
+        unsigned i = 0;
+        for (i = vars.size(); i-- > 0; ) {
             if (lut_is_defined(i, vars.size())) {
                 break;
             }
@@ -239,7 +234,7 @@ namespace sat {
         v = vars[i];
         vars.erase(v);
         uint64_t r = 0;
-        uint64_t m = m_masks[vars.size()];
+        uint64_t m = m_masks[i];
         unsigned offset = 0;
         // example, if i = 2, then we are examining 
         // how m_combination evaluates at position xy0uv
@@ -248,7 +243,7 @@ namespace sat {
         // 
         for (unsigned j = 0; j < 64; ++j) {
             if (0 != (m & (1ull << j))) {
-                if (0 == (m_combination & (1ull << j))) {
+                if (0 != (m_combination & (1ull << j))) {
                     r |= 1ull << offset;
                 }
                 ++offset;
@@ -284,5 +279,11 @@ namespace sat {
         return filter;
     }
 
+    std::ostream& lut_finder::display_mask(std::ostream& out, uint64_t mask, unsigned sz) const {
+        for (unsigned i = 0; i < sz; ++i) {
+            out << ((0 != (((mask >> i)) & 0x1)) ? "1" : "0");
+        }
+        return out;
+    }
 
 }

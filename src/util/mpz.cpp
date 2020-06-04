@@ -16,6 +16,7 @@ Author:
 Revision History:
 
 --*/
+#include <cstring>
 #include <sstream>
 #include <iomanip>
 #include "util/mpz.h"
@@ -122,9 +123,11 @@ uint64_t u64_gcd(uint64_t u, uint64_t v) {
 }
 
 
+
 template<bool SYNCH>
 mpz_manager<SYNCH>::mpz_manager():
     m_allocator("mpz_manager") {
+
 #ifndef _MP_GMP
     if (sizeof(digit_t) == sizeof(uint64_t)) {
         // 64-bit machine
@@ -230,9 +233,10 @@ mpz_manager<SYNCH>::sign_cell::sign_cell(mpz_manager& m, mpz const& a):
 
 
 template<bool SYNCH>
-void mpz_manager<SYNCH>::del(mpz & a) { 
+void mpz_manager<SYNCH>::del(mpz_manager<SYNCH>* m, mpz & a) { 
     if (a.m_ptr) {
-        deallocate(a.m_owner == mpz_self, a.m_ptr); 
+        SASSERT(m);
+        m->deallocate(a.m_owner == mpz_self, a.m_ptr); 
         a.m_ptr = nullptr;
         a.m_kind = mpz_small;
         a.m_owner = mpz_self;
@@ -1680,6 +1684,9 @@ double mpz_manager<SYNCH>::get_double(mpz const & a) const {
         else
             d *= static_cast<double>(UINT_MAX);   // 32-bit version
     }
+    if (!(r >= 0.0)) {
+        r = static_cast<double>(UINT64_MAX); // some large number
+    }
     return a.m_val < 0 ? -r : r;
 #else
     return mpz_get_d(*a.m_ptr);
@@ -1777,10 +1784,11 @@ void mpz_manager<SYNCH>::display_hex(std::ostream & out, mpz const & a, unsigned
     out.copyfmt(fmt);
 }
 
-void display_binary_data(std::ostream &out, unsigned val, unsigned numBits) {
-	for (unsigned shift = numBits; shift-- > 32; ) out << "0";
-    for (unsigned shift = std::min(32u, numBits); shift-- > 0; ) {
-        if (val & (1 << shift)) {
+static void display_binary_data(std::ostream &out, uint64_t val, uint64_t numBits) {
+    for (uint64_t shift = numBits; shift-- > 64ull; ) out << "0";
+    if (numBits > 64) numBits = 64;
+    for (uint64_t shift = numBits; shift-- > 0; ) {
+        if (val & (1ull << shift)) {
             out << "1";
         } else {
             out << "0";
@@ -1790,9 +1798,9 @@ void display_binary_data(std::ostream &out, unsigned val, unsigned numBits) {
 
 template<bool SYNCH>
 void mpz_manager<SYNCH>::display_bin(std::ostream & out, mpz const & a, unsigned num_bits) const {
-    if (is_uint(a)) {
-        display_binary_data(out, get_uint(a), num_bits);
-    } 
+    if (is_small(a)) {
+        display_binary_data(out, get_uint64(a), num_bits);
+    }
     else {
 #ifndef _MP_GMP
         digit_t *ds = digits(a);

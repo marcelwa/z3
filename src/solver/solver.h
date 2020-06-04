@@ -161,6 +161,7 @@ public:
     virtual lbool check_sat_cc(expr_ref_vector const& cube, vector<expr_ref_vector> const& clauses) {
         if (clauses.empty()) return check_sat(cube.size(), cube.c_ptr());
         NOT_IMPLEMENTED_YET();
+        return l_undef;
     }
 
     /**
@@ -234,7 +235,7 @@ public:
     /**
        \brief Display the content of this solver in DIMACS format
     */
-    std::ostream& display_dimacs(std::ostream & out) const;
+    std::ostream& display_dimacs(std::ostream & out, bool include_names = true) const;
 
     /**
        \brief expose model converter when solver produces partially reduced set of assertions.

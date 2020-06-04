@@ -386,12 +386,6 @@ namespace {
     //
     // ------------------------------------
 
-    inline enode * get_enode(context & ctx, app * n) {
-        SASSERT(ctx.e_internalized(n));
-        enode * e = ctx.get_enode(n);
-        SASSERT(e);
-        return e;
-    }
     inline enode * mk_enode(context & ctx, quantifier * qa, app * n) {
         ctx.internalize(n, false, ctx.get_generation(qa));
         enode * e = ctx.get_enode(n);
@@ -446,6 +440,13 @@ namespace {
         }
 
 #ifdef Z3DEBUG
+        inline enode * get_enode(context & ctx, app * n) const {
+            SASSERT(ctx.e_internalized(n));
+            enode * e = ctx.get_enode(n);
+            SASSERT(e);
+            return e;
+        }
+
         void display_label_hashes_core(std::ostream & out, app * p) const {
             if (p->is_ground()) {
                 enode * e = get_enode(*m_context, p);
@@ -587,10 +588,12 @@ namespace {
         }
     };
 
-    inline std::ostream & operator<<(std::ostream & out, code_tree const & tree) {
+#ifdef _TRACE
+    std::ostream & operator<<(std::ostream & out, code_tree const & tree) {
         tree.display(out);
         return out;
     }
+#endif
 
     // ------------------------------------
     //
@@ -797,7 +800,7 @@ namespace {
         code_tree *             m_tree;
         unsigned                m_num_choices;
         bool                    m_is_tmp_tree;
-        svector<bool>           m_mp_already_processed;
+        bool_vector           m_mp_already_processed;
         obj_map<expr, unsigned> m_matched_exprs;
 
         struct pcheck_checked {
@@ -1367,6 +1370,8 @@ namespace {
         */
         bool is_semi_compatible(check * instr) const {
             unsigned reg  = instr->m_reg;
+            if (instr->m_enode && !instr->m_enode->has_lbl_hash())
+                instr->m_enode->set_lbl_hash(m_context);
             return
                 m_registers[reg] != 0 &&
                 // if the register was already checked by another filter, then it doesn't make sense
@@ -3106,10 +3111,10 @@ namespace {
 
         // m_is_plbl[f] is true, then when f(c_1, ..., c_n) becomes relevant,
         //  for each c_i. c_i->get_root()->lbls().insert(lbl_hash(f))
-        svector<bool>               m_is_plbl;
+        bool_vector               m_is_plbl;
         // m_is_clbl[f] is true, then when n=f(c_1, ..., c_n) becomes relevant,
         //  n->get_root()->lbls().insert(lbl_hash(f))
-        svector<bool>               m_is_clbl;    // children labels
+        bool_vector               m_is_clbl;    // children labels
 
         // auxiliary field used to update data-structures...
         typedef ptr_vector<func_decl> func_decls;
@@ -4027,8 +4032,3 @@ namespace smt {
     }
 }
 
-#ifdef Z3DEBUG
-void pp(code_tree * c) {
-    c->display(std::cout);
-}
-#endif

@@ -34,6 +34,7 @@ Revision History:
 #include "smt/smt_statistics.h"
 #include "smt/smt_conflict_resolution.h"
 #include "smt/smt_relevancy.h"
+#include "smt/smt_induction.h"
 #include "smt/smt_case_split_queue.h"
 #include "smt/smt_almost_cg_table.h"
 #include "smt/smt_failure.h"
@@ -106,6 +107,7 @@ namespace smt {
         // enodes. Examples: boolean expression nested in an
         // uninterpreted function.
         expr_ref_vector             m_e_internalized_stack; // stack of the expressions already internalized as enodes.
+        quantifier_ref_vector       m_l_internalized_stack;
 
         ptr_vector<justification>   m_justifications;
 
@@ -185,6 +187,7 @@ namespace smt {
         unsigned                    m_simp_qhead;
         int                         m_simp_counter; //!< can become negative
         scoped_ptr<case_split_queue> m_case_split_queue;
+        scoped_ptr<induction>       m_induction;
         double                      m_bvar_inc;
         bool                        m_phase_cache_on;
         unsigned                    m_phase_counter; //!< auxiliary variable used to decide when to turn on/off phase caching
@@ -728,11 +731,22 @@ namespace smt {
 
         typedef std::pair<expr *, bool> expr_bool_pair;
 
-        void ts_visit_child(expr * n, bool gate_ctx, svector<int> & tcolors, svector<int> & fcolors, svector<expr_bool_pair> & todo, bool & visited);
+        void ts_visit_child(expr * n, bool gate_ctx, svector<expr_bool_pair> & todo, bool & visited);
 
-        bool ts_visit_children(expr * n, bool gate_ctx, svector<int> & tcolors, svector<int> & fcolors, svector<expr_bool_pair> & todo);
+        bool ts_visit_children(expr * n, bool gate_ctx, svector<expr_bool_pair> & todo);
 
-        void top_sort_expr(expr * n, svector<expr_bool_pair> & sorted_exprs);
+        svector<expr_bool_pair> ts_todo;
+        char_vector       tcolors;
+        char_vector       fcolors;
+
+        bool should_internalize_rec(expr* e) const;
+
+        void top_sort_expr(expr* const* exprs, unsigned num_exprs, svector<expr_bool_pair> & sorted_exprs);
+
+        void internalize_rec(expr * n, bool gate_ctx);
+
+        void internalize_deep(expr * n);
+        void internalize_deep(expr* const* n, unsigned num_exprs);
 
         void assert_default(expr * n, proof * pr);
 
@@ -774,7 +788,6 @@ namespace smt {
             void undo(context & ctx) override { ctx.undo_mk_bool_var(); }
         };
         mk_bool_var_trail   m_mk_bool_var_trail;
-
         void undo_mk_bool_var();
 
         friend class mk_enode_trail;
@@ -782,10 +795,17 @@ namespace smt {
         public:
             void undo(context & ctx) override { ctx.undo_mk_enode(); }
         };
-
         mk_enode_trail   m_mk_enode_trail;
-
         void undo_mk_enode();
+
+        friend class mk_lambda_trail;
+        class mk_lambda_trail : public trail<context> {
+        public:
+            void undo(context & ctx) override { ctx.undo_mk_lambda(); }
+        };
+        mk_lambda_trail   m_mk_lambda_trail;
+        void undo_mk_lambda();
+
 
         void apply_sort_cnstr(app * term, enode * e);
 
@@ -835,22 +855,25 @@ namespace smt {
 
         void mk_or_cnstr(app * n);
 
-        void mk_iff_cnstr(app * n);
+        void mk_iff_cnstr(app * n, bool sign);
 
         void mk_ite_cnstr(app * n);
 
-        void dec_ref(literal l) { if (m_lit_occs[l.index()] > 0) m_lit_occs[l.index()]--; }
+        bool track_occs() const { return m_fparams.m_phase_selection == PS_OCCURRENCE; }
+        
+        void dec_ref(literal l);
 
-        void inc_ref(literal l) { m_lit_occs[l.index()]++; }
+        void inc_ref(literal l);
 
-        void remove_lit_occs(clause const& cls);
+        void remove_lit_occs(clause const& cls, unsigned num_bool_vars);
 
         void add_lit_occs(clause const& cls);
-    public:
+    public:        
 
         void ensure_internalized(expr* e);
 
         void internalize(expr * n, bool gate_ctx);
+        void internalize(expr* const* exprs, unsigned num_exprs, bool gate_ctx);
 
         void internalize(expr * n, bool gate_ctx, unsigned generation);
 
@@ -1023,6 +1046,7 @@ namespace smt {
 
         void push_eq(enode * lhs, enode * rhs, eq_justification const & js) {
             if (lhs->get_root() != rhs->get_root()) {
+                SASSERT(m.get_sort(lhs->get_owner()) == m.get_sort(rhs->get_owner()));
                 m_eq_propagation_queue.push_back(new_eq(lhs, rhs, js));
             }
         }
@@ -1050,8 +1074,11 @@ namespace smt {
         }
 
         bool inconsistent() const {
-            return m_conflict != null_b_justification;
+            return m_conflict != null_b_justification ||
+                m_asserted_formulas.inconsistent();
         }
+
+        bool has_case_splits();
 
         unsigned get_num_conflicts() const {
             return m_num_conflicts;
@@ -1128,6 +1155,8 @@ namespace smt {
 
         void internalize_assertions();
 
+        void asserted_inconsistent();
+
         bool validate_assumptions(expr_ref_vector const& asms);
 
         void init_assumptions(expr_ref_vector const& asms);
@@ -1188,7 +1217,7 @@ namespace smt {
 
         bool is_relevant_core(expr * n) const { return m_relevancy_propagator->is_relevant(n); }
 
-        svector<bool>  m_relevant_conflict_literals;
+        bool_vector  m_relevant_conflict_literals;
         void record_relevancy(unsigned n, literal const* lits);
         void restore_relevancy(unsigned n, literal const* lits);
 
@@ -1254,6 +1283,8 @@ namespace smt {
 
     public:
         bool can_propagate() const;
+
+        induction& get_induction(); 
 
         // Retrieve arithmetic values. 
         bool get_arith_lo(expr* e, rational& lo, bool& strict);
@@ -1464,10 +1495,6 @@ namespace smt {
         // copy plugins into a fresh context.
         void copy_plugins(context& src, context& dst);
 
-        static literal translate_literal(
-            literal lit, context& src_ctx, context& dst_ctx,
-            vector<bool_var> b2v, ast_translation& tr);
-
         /*
           \brief Utilities for consequence finding.
         */
@@ -1475,7 +1502,7 @@ namespace smt {
         //typedef uint_set index_set;
         u_map<index_set> m_antecedents;
         obj_map<expr, expr*> m_var2orig;
-        obj_map<expr, expr*> m_assumption2orig;
+        u_map<expr*> m_assumption2orig;
         obj_map<expr, expr*> m_var2val;
         void extract_fixed_consequences(literal lit, index_set const& assumptions, expr_ref_vector& conseq);
         void extract_fixed_consequences(unsigned& idx, index_set const& assumptions, expr_ref_vector& conseq);
@@ -1551,8 +1578,7 @@ namespace smt {
 
         lbool setup_and_check(bool reset_cancel = true);
 
-        // return 'true' if assertions are inconsistent.
-        bool reduce_assertions();
+        void reduce_assertions();
 
         bool resource_limits_exceeded();
 
@@ -1569,8 +1595,6 @@ namespace smt {
         void get_relevant_literals(expr_ref_vector & result);
 
         void get_guessed_literals(expr_ref_vector & result);
-
-        bool split_binary(app* o, expr*& a, expr_ref& b, expr_ref& c);
 
         void internalize_assertion(expr * n, proof * pr, unsigned generation);
 

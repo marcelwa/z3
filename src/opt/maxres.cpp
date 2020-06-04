@@ -207,7 +207,7 @@ public:
                   s().display(tout << m_asms << "\n") << "\n";
                   display(tout););
             is_sat = check_sat_hill_climb(m_asms);
-            if (m.canceled()) {
+            if (!m.inc()) {
                 return l_undef;
             }
             switch (is_sat) {
@@ -216,7 +216,7 @@ public:
                        tout << *m_model << "assumptions: ";
                        for (expr* a : m_asms) tout << mk_pp(a, m) << " -> " << (*m_model)(a) << " ";
                        tout << "\n";);
-                SASSERT(m_model->is_true(m_asms));
+                SASSERT(m_model->is_true(m_asms) || m.limit().is_canceled());
                 found_optimum();
                 return l_true;
             case l_false:
@@ -247,7 +247,7 @@ public:
         if (is_sat != l_true) return is_sat;
         while (m_lower < m_upper) {
             is_sat = check_sat_hill_climb(m_asms);
-            if (m.canceled()) {
+            if (!m.inc()) {
                 return l_undef;
             }
             switch (is_sat) {
@@ -286,7 +286,7 @@ public:
         lbool is_sat = l_true;
         if (m_hill_climb) {
             /**
-               Give preference to cores that have large minmal values.
+               Give preference to cores that have large minimal values.
             */
             sort_assumptions(asms);              
             m_last_index = std::min(m_last_index, asms.size()-1);
@@ -862,7 +862,7 @@ public:
                tout << "other solver\n";
                s().display(tout);
                );
-        VERIFY(is_sat == l_false || m.canceled());
+        VERIFY(is_sat == l_false || !m.inc());
     }
 
     void verify_assumptions() {

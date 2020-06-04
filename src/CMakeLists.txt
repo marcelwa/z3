@@ -54,7 +54,6 @@ add_subdirectory(math/grobner)
 add_subdirectory(sat)
 add_subdirectory(nlsat)
 add_subdirectory(math/lp)
-add_subdirectory(math/euclid)
 add_subdirectory(tactic/core)
 add_subdirectory(math/subpaving/tactic)
 add_subdirectory(tactic/aig)
@@ -111,6 +110,9 @@ else()
   set(lib_type "STATIC")
 endif()
 add_library(libz3 ${lib_type} ${object_files})
+target_include_directories(libz3 INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/api>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 set_target_properties(libz3 PROPERTIES
   # VERSION determines the version in the filename of the shared library.
   # SOVERSION determines the value of the DT_SONAME field on ELF platforms.
@@ -265,6 +267,18 @@ if (Z3_BUILD_JAVA_BINDINGS)
       "You either need to disable Z3_BUILD_JAVA_BINDINGS or enable Z3_BUILD_LIBZ3_SHARED")
   endif()
   add_subdirectory(api/java)
+endif()
+
+################################################################################
+# Julia bindings
+################################################################################
+option(Z3_BUILD_JULIA_BINDINGS "Build Julia bindings for Z3" OFF)
+if (Z3_BUILD_JULIA_BINDINGS)
+  if (NOT Z3_BUILD_LIBZ3_SHARED)
+    message(FATAL_ERROR "The Julia bindings will not work with a static libz3."
+      "You either need to disable Z3_BUILD_JULIA_BINDINGS or enable Z3_BUILD_LIBZ3_SHARED")
+  endif()
+  add_subdirectory(api/julia)
 endif()
 
 # TODO: Implement support for other bindigns

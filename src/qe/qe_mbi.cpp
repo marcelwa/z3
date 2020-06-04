@@ -244,7 +244,7 @@ namespace qe {
      */
     app_ref_vector uflia_mbi::get_arith_vars(expr_ref_vector const& lits) {
         app_ref_vector avars(m); 
-        svector<bool> seen;
+        bool_vector seen;
         arith_util a(m);
         for (expr* e : subterms(lits)) {
             if ((m.is_eq(e) && a.is_int_real(to_app(e)->get_arg(0))) || a.is_arith_expr(e)) {
@@ -371,8 +371,7 @@ namespace qe {
         for (expr* e : subterms(lits)) {
             if (a.is_int_real(e) && is_uninterp(e) && to_app(e)->get_num_args() > 0) {
                 func_decl* f = to_app(e)->get_decl();
-                auto* v = apps.insert_if_not_there2(f, ptr_vector<app>());
-                v->get_data().m_value.push_back(to_app(e));
+                apps.insert_if_not_there(f, ptr_vector<app>()).push_back(to_app(e));
             }
         }
         for (auto const& kv : apps) {

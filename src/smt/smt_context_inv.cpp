@@ -32,9 +32,12 @@ namespace smt {
     bool context::check_clause(clause const * cls) const {
         SASSERT(is_watching_clause(~cls->get_literal(0), cls));        
         SASSERT(is_watching_clause(~cls->get_literal(1), cls));        
+#if 0
         for (literal l : *cls) {
-            // currently does not hold: SASSERT(m_lit_occs[l.index()] > 0);
+            // holds, TBD re-enable when ready to re-check
+            // SASSERT(!track_occs() || m_lit_occs[l.index()] > 0);
         }
+#endif
         return true;
     }
 
@@ -261,7 +264,7 @@ namespace smt {
     bool context::check_th_diseq_propagation() const {
         TRACE("check_th_diseq_propagation", tout << "m_propagated_th_diseqs.size() " << m_propagated_th_diseqs.size() << "\n";);
         int num = get_num_bool_vars();
-        if (inconsistent()) {
+        if (inconsistent() || get_manager().limit().is_canceled()) {
             return true;
         }
         for (bool_var v = 0; v < num; v++) {
@@ -272,6 +275,8 @@ namespace smt {
                     enode * lhs = n->get_arg(0)->get_root();
                     enode * rhs = n->get_arg(1)->get_root();
                     if (rhs->is_interpreted() && lhs->is_interpreted())
+                        continue;
+                    if (lhs == rhs)
                         continue;
                     TRACE("check_th_diseq_propagation", tout << "num. theory_vars: " << lhs->get_num_th_vars() << " " 
                           << mk_pp(m.get_sort(lhs->get_owner()), m) << "\n";);
@@ -288,8 +293,6 @@ namespace smt {
                                 if (eq.m_th_id == th_id) {
                                     enode * lhs_prime = th->get_enode(eq.m_lhs)->get_root();
                                     enode * rhs_prime = th->get_enode(eq.m_rhs)->get_root();
-                                    TRACE("check_th_diseq_propagation", 
-                                          tout << m.get_family_name(eq.m_th_id) << "\n";);
 
                                     if ((lhs == lhs_prime && rhs == rhs_prime) ||
                                         (rhs == lhs_prime && lhs == rhs_prime)) {
@@ -299,15 +302,13 @@ namespace smt {
                                     }
                                 }
                             }
-                            if (!found) {
-                            // missed theory diseq propagation
-                                display(std::cout);
-                                std::cout << "checking theory: " << m.get_family_name(th_id) << "\n";
-                                std::cout << "root: #" << n->get_root()->get_owner_id() << " node: #" << n->get_owner_id() << "\n";
-                                std::cout << mk_pp(n->get_owner(), m) << "\n";
-                                std::cout << "lhs: #" << lhs->get_owner_id() << ", rhs: #" << rhs->get_owner_id() << "\n";
-                                std::cout << mk_bounded_pp(lhs->get_owner(), m) << " " << mk_bounded_pp(rhs->get_owner(), m) << "\n";
-                            }
+                            CTRACE("check_th_diseq_propagation", !found,
+                                   tout 
+                                   << "checking theory: " << m.get_family_name(th_id) << "\n"
+                                   << "root: #" << n->get_root()->get_owner_id() << " node: #" << n->get_owner_id() << "\n"
+                                   << mk_pp(n->get_owner(), m) << "\n"
+                                   << "lhs: #" << lhs->get_owner_id() << ", rhs: #" << rhs->get_owner_id() << "\n"
+                                   << mk_bounded_pp(lhs->get_owner(), m) << " " << mk_bounded_pp(rhs->get_owner(), m) << "\n";);
                             VERIFY(found);
                         }
                         l = l->get_next();
@@ -364,22 +365,21 @@ namespace smt {
             if (!is_ground(n)) {
                 continue;
             }
-            if (is_quantifier(n) && m.is_rec_fun_def(to_quantifier(n))) {
-                continue;
-            }
             switch (get_assignment(lit)) {
             case l_undef:
                 break;
             case l_true:
-                if (!m_proto_model->eval(n, res, false)) return true;
-                CTRACE("mbqi_bug", !m.is_true(res), tout << n << " evaluates to " << res << "\n";); 
+                if (!m_proto_model->eval(n, res, false)) 
+                    return true;
+                CTRACE("model", !m.is_true(res), tout << n << " evaluates to " << res << "\n";); 
                 if (m.is_false(res)) {
                     return false;
                 }
                 break;
             case l_false:
-                if (!m_proto_model->eval(n, res, false)) return true;
-                CTRACE("mbqi_bug", !m.is_false(res), tout << n << " evaluates to " << res << "\n";); 
+                if (!m_proto_model->eval(n, res, false)) 
+                    return true;
+                CTRACE("model", !m.is_false(res), tout << n << " evaluates to " << res << "\n";); 
                 if (m.is_true(res)) {
                     return false;
                 }

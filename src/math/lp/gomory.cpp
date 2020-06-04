@@ -25,13 +25,13 @@
 #define SMALL_CUTS 1
 namespace lp {
 
-class gomory::imp {
+class create_cut {
     lar_term   &          m_t; // the term to return in the cut
     mpq        &          m_k; // the right side of the cut
     explanation*          m_ex; // the conflict explanation
     unsigned              m_inf_col; // a basis column which has to be an integer but has a non integral value
     const row_strip<mpq>& m_row;
-    const int_solver&     m_int_solver;
+    const int_solver&     lia;
     mpq                   m_lcm_den;
     mpq                   m_f;
     mpq                   m_one_minus_f;
@@ -42,18 +42,20 @@ class gomory::imp {
 #endif
     struct found_big {};
 
-    const impq & get_value(unsigned j) const { return m_int_solver.get_value(j); }
-    bool is_real(unsigned j) const { return m_int_solver.is_real(j); }
-    bool at_lower(unsigned j) const { return m_int_solver.at_lower(j); }
-    bool at_upper(unsigned j) const { return m_int_solver.at_upper(j); }
-    const impq & lower_bound(unsigned j) const { return m_int_solver.lower_bound(j); }
-    const impq & upper_bound(unsigned j) const  { return m_int_solver.upper_bound(j); }
-    constraint_index column_lower_bound_constraint(unsigned j) const { return m_int_solver.column_lower_bound_constraint(j); }
-    constraint_index column_upper_bound_constraint(unsigned j) const { return m_int_solver.column_upper_bound_constraint(j); }
-    bool column_is_fixed(unsigned j) const { return m_int_solver.m_lar_solver->column_is_fixed(j); }
+    const impq & get_value(unsigned j) const { return lia.get_value(j); }
+    bool is_int(unsigned j) const { return lia.column_is_int(j) || (lia.is_fixed(j) &&
+                                                             lia.lra.column_lower_bound(j).is_int()); }
+    bool is_real(unsigned j) const { return !is_int(j); }
+    bool at_lower(unsigned j) const { return lia.at_lower(j); }
+    bool at_upper(unsigned j) const { return lia.at_upper(j); }
+    const impq & lower_bound(unsigned j) const { return lia.lower_bound(j); }
+    const impq & upper_bound(unsigned j) const  { return lia.upper_bound(j); }
+    constraint_index column_lower_bound_constraint(unsigned j) const { return lia.column_lower_bound_constraint(j); }
+    constraint_index column_upper_bound_constraint(unsigned j) const { return lia.column_upper_bound_constraint(j); }
+    bool column_is_fixed(unsigned j) const { return lia.lra.column_is_fixed(j); }
 
     void int_case_in_gomory_cut(unsigned j) {
-        lp_assert(m_int_solver.column_is_int(j) && m_fj.is_pos());
+        lp_assert(is_int(j) && m_fj.is_pos());
         TRACE("gomory_cut_detail", 
               tout << " k = " << m_k;
               tout << ", fj: " << m_fj << ", ";
@@ -61,55 +63,64 @@ class gomory::imp {
               );
         mpq new_a;
         if (at_lower(j)) {
+            // here we have the product of new_a*(xj - lb(j)), so new_a*lb(j) is added to m_k
             new_a = m_fj <= m_one_minus_f ? m_fj / m_one_minus_f : ((1 - m_fj) / m_f);
             lp_assert(new_a.is_pos());
             m_k.addmul(new_a, lower_bound(j).x);
-            m_ex->push_justification(column_lower_bound_constraint(j));            
+            m_ex->push_back(column_lower_bound_constraint(j));            
         }
         else {
             lp_assert(at_upper(j));
-            // the upper terms are inverted: therefore we have the minus
+            // here we have the expression  new_a*(xj - ub), so new_a*ub(j) is added to m_k
             new_a = - (m_fj <= m_f ? m_fj / m_f  : ((1 - m_fj) / m_one_minus_f));
             lp_assert(new_a.is_neg());
             m_k.addmul(new_a, upper_bound(j).x);
-            m_ex->push_justification(column_upper_bound_constraint(j));
+            m_ex->push_back(column_upper_bound_constraint(j));
         }
         m_t.add_monomial(new_a, j);
         m_lcm_den = lcm(m_lcm_den, denominator(new_a));
         TRACE("gomory_cut_detail", tout << "new_a = " << new_a << ", k = " << m_k << ", lcm_den = " << m_lcm_den << "\n";);
 #if SMALL_CUTS
+        // if (numerator(new_a).is_big()) throw found_big(); 
         if (numerator(new_a) > m_big_number) throw found_big(); 
 #endif
     }
 
     void real_case_in_gomory_cut(const mpq & a, unsigned j) {
-        TRACE("gomory_cut_detail_real", tout << "real\n";);
+        TRACE("gomory_cut_detail_real", tout << "j = " << j << ", a = " << a << ", m_k = " << m_k << "\n";);
         mpq new_a;
         if (at_lower(j)) {
             if (a.is_pos()) {
+                // the delta is a (x - f) is positive it has to grow and fight m_one_minus_f
                 new_a = a / m_one_minus_f;
             }
             else {
+                // the delta is negative and it works again m_f
                 new_a = - a / m_f;
             }
             m_k.addmul(new_a, lower_bound(j).x); // is it a faster operation than
             // k += lower_bound(j).x * new_a;  
-            m_ex->push_justification(column_lower_bound_constraint(j));
+            m_ex->push_back(column_lower_bound_constraint(j));
         }
         else {
             lp_assert(at_upper(j));
             if (a.is_pos()) {
+                // the delta is works again m_f
                 new_a =  - a / m_f; 
             }
             else {
+                // the delta is positive works again m_one_minus_f
                 new_a =   a / m_one_minus_f; 
             }
             m_k.addmul(new_a, upper_bound(j).x); //  k += upper_bound(j).x * new_a; 
-            m_ex->push_justification(column_upper_bound_constraint(j));
+            m_ex->push_back(column_upper_bound_constraint(j));
         }
-        TRACE("gomory_cut_detail_real", tout << a << "*v" << j << " k: " << m_k << "\n";);
         m_t.add_monomial(new_a, j);
+        TRACE("gomory_cut_detail_real", tout << "add " << new_a << "*v" << j << ", k: " << m_k << "\n";
+              tout << "m_t =  "; lia.lra.print_term(m_t, tout) << "\nk: " << m_k << "\n";);
+        
 #if SMALL_CUTS
+        // if (numerator(new_a).is_big()) throw found_big(); 
         if (numerator(new_a) > m_big_number) throw found_big(); 
 #endif
     }
@@ -117,7 +128,6 @@ class gomory::imp {
     lia_move report_conflict_from_gomory_cut() {
         lp_assert(m_k.is_pos());
         // conflict 0 >= k where k is positive
-        m_k.neg(); // returning 0 <= -k
         return lia_move::conflict;
     }
 
@@ -129,19 +139,18 @@ class gomory::imp {
         if (pol.size() == 1) {
             TRACE("gomory_cut_detail", tout << "pol.size() is 1" << std::endl;);
             unsigned v = pol[0].second;
-            lp_assert(m_int_solver.column_is_int(v));
+            lp_assert(is_int(v));
             const mpq& a = pol[0].first;
-            m_k /= a;
             if (a.is_pos()) { // we have av >= k
+                m_k /= a;
                 if (!m_k.is_int())
                     m_k = ceil(m_k);
-                // switch size
-                m_t.add_monomial(- mpq(1), v);
-                m_k.neg();
-            } else {
-                if (!m_k.is_int())
-                    m_k = floor(m_k);
                 m_t.add_monomial(mpq(1), v);
+            } else {
+                m_k /= -a;
+                if (!m_k.is_int())
+                    m_k = ceil(m_k);
+                m_t.add_monomial(-mpq(1), v);
             }
         } else {
             m_lcm_den = lcm(m_lcm_den, denominator(m_k));
@@ -151,14 +160,12 @@ class gomory::imp {
                 // normalize coefficients of integer parameters to be integers.
                 for (auto & pi: pol) {
                     pi.first *= m_lcm_den;
-                    SASSERT(!m_int_solver.column_is_int(pi.second) || pi.first.is_int());
+                    SASSERT(!is_int(pi.second) || pi.first.is_int());
                 }
                 m_k *= m_lcm_den;
             }
-            // negate everything to return -pol <= -m_k
             for (const auto & pi: pol)
-                m_t.add_monomial(-pi.first, pi.second);
-            m_k.neg();
+                m_t.add_monomial(pi.first, pi.second);
         }
         TRACE("gomory_cut_detail", tout << "k = " << m_k << std::endl;);
         lp_assert(m_k.is_int());
@@ -184,7 +191,8 @@ class gomory::imp {
     void dump_coeff(std::ostream & out, const T& c) const {
         out << "( * ";
         dump_coeff_val(out, c.coeff());
-        out << " " << var_name(c.var()) << ")";
+        auto t = lia.lra.column2tv(c.column());
+        out << " " << var_name(t.id()) << ")";
     }
     
     std::ostream& dump_row_coefficients(std::ostream & out) const {
@@ -205,7 +213,7 @@ class gomory::imp {
     }
 
     void dump_declaration(std::ostream& out, unsigned v) const {
-        out << "(declare-const " << var_name(v) << (m_int_solver.column_is_int(v) ? " Int" : " Real") << ")\n";
+        out << "(declare-const " << var_name(v) << (is_int(v) ? " Int" : " Real") << ")\n";
     }
     
     void dump_declarations(std::ostream& out) const {
@@ -214,9 +222,9 @@ class gomory::imp {
             dump_declaration(out, p.var());
         }
         for (const auto& p : m_t) {
-            unsigned v = p.var();
-            if (m_int_solver.m_lar_solver->is_term(v)) {
-                dump_declaration(out, v);
+            auto t = lia.lra.column2tv(p.column());
+            if (t.is_term()) {
+                dump_declaration(out, t.id());
             }
         }
     }
@@ -274,15 +282,15 @@ public:
     void dump(std::ostream& out) {
         out << "applying cut at:\n"; print_linear_combination_indices_only<row_strip<mpq>, mpq>(m_row, out); out << std::endl;
         for (auto & p : m_row) {
-            m_int_solver.m_lar_solver->m_mpq_lar_core_solver.m_r_solver.print_column_info(p.var(), out);
+            lia.lra.print_column_info(p.var(), out);
         }
         out << "inf_col = " << m_inf_col << std::endl;
     }
 
-    lia_move create_cut() {
+    lia_move cut() {
         TRACE("gomory_cut", dump(tout););
         
-        // gomory will be   t <= k and the current solution has a property t > k
+        // gomory will be   t >= k and the current solution has a property t < k
         m_k = 1;
         m_t.clear();
         mpq m_lcm_den(1);
@@ -311,6 +319,11 @@ public:
 
              // use -p.coeff() to make the format compatible with the format used in: Integrating Simplex with DPLL(T)
             try {
+                if (lia.is_fixed(j)) {
+                    m_ex->push_back(column_lower_bound_constraint(j));
+                    m_ex->push_back(column_upper_bound_constraint(j));
+                    continue;
+                }
                 if (is_real(j)) {  
                     real_case_in_gomory_cut(- p.coeff(), j);
                 } 
@@ -332,34 +345,112 @@ public:
             return report_conflict_from_gomory_cut();
         if (some_int_columns)
             adjust_term_and_k_for_some_ints_case_gomory();
-        lp_assert(m_int_solver.current_solution_is_inf_on_cut());
         TRACE("gomory_cut_detail", dump_cut_and_constraints_as_smt_lemma(tout););
-        m_int_solver.m_lar_solver->subs_term_columns(m_t);
+        lp_assert(lia.current_solution_is_inf_on_cut());  // checks that indices are columns
         TRACE("gomory_cut", print_linear_combination_of_column_indices_only(m_t.coeffs_as_vector(), tout << "gomory cut:"); tout << " <= " << m_k << std::endl;);
         return lia_move::cut;
     }
 
-    imp(lar_term & t, mpq & k, explanation* ex, unsigned basic_inf_int_j, const row_strip<mpq>& row, const int_solver& int_slv ) :
+    create_cut(lar_term & t, mpq & k, explanation* ex, unsigned basic_inf_int_j, const row_strip<mpq>& row, const int_solver& lia) :
         m_t(t),
         m_k(k),
         m_ex(ex),
         m_inf_col(basic_inf_int_j),
         m_row(row),
-        m_int_solver(int_slv),
+        lia(lia),
         m_lcm_den(1),
         m_f(fractional_part(get_value(basic_inf_int_j).x)),
         m_one_minus_f(1 - m_f) {}
     
 };
 
-lia_move gomory::create_cut() {
-    return m_imp->create_cut();
+lia_move gomory::cut(lar_term & t, mpq & k, explanation* ex, unsigned basic_inf_int_j, const row_strip<mpq>& row) {
+    create_cut cc(t, k, ex, basic_inf_int_j, row, lia);
+    return cc.cut();
 }
 
-gomory::gomory(lar_term & t, mpq & k, explanation* ex, unsigned basic_inf_int_j, const row_strip<mpq>& row, const int_solver& s) {
-    m_imp = alloc(imp, t, k, ex, basic_inf_int_j, row, s);
+bool gomory::is_gomory_cut_target(const row_strip<mpq>& row) {
+    // All non base variables must be at their bounds and assigned to rationals (that is, infinitesimals are not allowed).
+    unsigned j;
+    for (const auto & p : row) {
+        j = p.var();
+        if (!lia.is_base(j) && (!lia.at_bound(j) || !is_zero(lia.get_value(j).y))) {
+            TRACE("gomory_cut", tout << "row is not gomory cut target:\n";
+                  lia.display_column(tout, j);
+                  tout << "infinitesimal: " << !is_zero(lia.get_value(j).y) << "\n";);
+            return false;
+        }
+    }
+    return true;
 }
 
-gomory::~gomory() { dealloc(m_imp); }
+int gomory::find_basic_var() {
+    int result = -1;
+    unsigned n = 0;
+    unsigned min_row_size = UINT_MAX;
+#if 0
+    bool boxed = false;
+    mpq min_range;
+#endif
+
+
+    // Prefer smaller row size
+    // Prefer boxed to non-boxed
+    // Prefer smaller ranges
+
+    for (unsigned j : lra.r_basis()) {
+        if (!lia.column_is_int_inf(j))
+            continue;
+        const row_strip<mpq>& row = lra.get_row(lia.row_of_basic_column(j));
+        if (!is_gomory_cut_target(row)) 
+            continue;
+
+#if 0
+        if (is_boxed(j) && (min_row_size == UINT_MAX || 4*row.size() < 5*min_row_size)) {
+            lar_core_solver & lcs = lra.m_mpq_lar_core_solver;
+            auto new_range = lclia.m_r_upper_bounds()[j].x - lclia.m_r_lower_bounds()[j].x;
+            if (!boxed) {
+                result = j;
+                n = 1;
+                min_row_size = row.size();
+                boxed = true;
+                min_range = new_range;
+                continue;
+            }
+            if (min_range > 2*new_range || ((5*min_range > 4*new_range && (random() % (++n)) == 0))) { 
+                result = j;
+                n = 1;
+                min_row_size = row.size();
+                min_range = std::min(min_range, new_range);
+                continue;
+            }
+        }
+#endif
+
+        if (min_row_size == UINT_MAX || 
+            2*row.size() < min_row_size || 
+            (4*row.size() < 5*min_row_size && lia.random() % (++n) == 0)) {
+            result = j;
+            n = 1;
+            min_row_size = std::min(min_row_size, row.size());
+        }
+    }
+    return result;
+}
+    
+lia_move gomory::operator()() {
+    lra.move_non_basic_columns_to_bounds();
+    int j = find_basic_var();
+    if (j == -1) return lia_move::undef;
+    unsigned r = lia.row_of_basic_column(j);
+    const row_strip<mpq>& row = lra.get_row(r);
+    SASSERT(lra.row_is_correct(r));
+    SASSERT(is_gomory_cut_target(row));
+    lia.m_upper = false;
+    return cut(lia.m_t, lia.m_k, lia.m_ex, j, row);
+}
+
+
+gomory::gomory(int_solver& lia): lia(lia), lra(lia.lra) { }
 
 }

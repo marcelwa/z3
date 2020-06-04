@@ -820,10 +820,6 @@ def Function(name, *sig):
 
 def FreshFunction(*sig):
     """Create a new fresh Z3 uninterpreted function with the given sorts.
-
-    >>> f = FreshFunction(IntSort(), IntSort())
-    >>> f(f(0))
-    f!0(f!0(0))
     """
     sig = _get_args(sig)
     if z3_debug():
@@ -863,13 +859,14 @@ def RecFunction(name, *sig):
 
 def RecAddDefinition(f, args, body):
     """Set the body of a recursive function.
-       Recursive definitions are only unfolded during search.
+       Recursive definitions can be simplified if they are applied to ground
+       arguments.       
     >>> ctx = Context()
     >>> fac = RecFunction('fac', IntSort(ctx), IntSort(ctx))
     >>> n = Int('n', ctx)
     >>> RecAddDefinition(fac, n, If(n == 0, 1, n*fac(n-1)))
     >>> simplify(fac(5))
-    fac(5)
+    120
     >>> s = Solver(ctx=ctx)
     >>> s.add(fac(n) < 3)
     >>> s.check()
@@ -1409,7 +1406,7 @@ class BoolSortRef(SortRef):
             return BoolVal(val, self.ctx)
         if z3_debug():
             if not is_expr(val):
-               _z3_assert(is_expr(val), "True, False or Z3 Boolean expression expected. Received %s" % val)
+               _z3_assert(is_expr(val), "True, False or Z3 Boolean expression expected. Received %s of type %s" % (val, type(val)))
             if not self.eq(val.sort()):
                _z3_assert(self.eq(val.sort()), "Value cannot be converted into a Z3 Boolean value")
         return val
@@ -1720,11 +1717,10 @@ def And(*args):
         ctx = args[0].ctx
         args = [a for a in args[0]]
     else:
-        ctx = main_ctx()
+        ctx = None
     args = _get_args(args)
-    ctx_args  = _ctx_from_ast_arg_list(args, ctx)
+    ctx  = _get_ctx(_ctx_from_ast_arg_list(args, ctx))
     if z3_debug():
-        _z3_assert(ctx_args is None or ctx_args == ctx, "context mismatch")
         _z3_assert(ctx is not None, "At least one of the arguments must be a Z3 expression or probe")
     if _has_probe(args):
         return _probe_and(args, ctx)
@@ -1749,12 +1745,14 @@ def Or(*args):
     if isinstance(last_arg, Context):
         ctx = args[len(args)-1]
         args = args[:len(args)-1]
+    elif len(args) == 1 and isinstance(args[0], AstVector):
+        ctx = args[0].ctx
+        args = [a for a in args[0]]
     else:
-        ctx = main_ctx()
+        ctx = None
     args = _get_args(args)
-    ctx_args  = _ctx_from_ast_arg_list(args, ctx)
+    ctx  = _get_ctx(_ctx_from_ast_arg_list(args, ctx))
     if z3_debug():
-        _z3_assert(ctx_args is None or ctx_args == ctx, "context mismatch")
         _z3_assert(ctx is not None, "At least one of the arguments must be a Z3 expression or probe")
     if _has_probe(args):
         return _probe_or(args, ctx)
@@ -3063,7 +3061,8 @@ def IntVector(prefix, sz, ctx=None):
     >>> Sum(X)
     x__0 + x__1 + x__2
     """
-    return [ Int('%s__%s' % (prefix, i)) for i in range(sz) ]
+    ctx = _get_ctx(ctx)
+    return [ Int('%s__%s' % (prefix, i), ctx) for i in range(sz) ]
 
 def FreshInt(prefix='x', ctx=None):
     """Return a fresh integer constant in the given context using the given prefix.
@@ -3115,7 +3114,8 @@ def RealVector(prefix, sz, ctx=None):
     >>> Sum(X).sort()
     Real
     """
-    return [ Real('%s__%s' % (prefix, i)) for i in range(sz) ]
+    ctx = _get_ctx(ctx)
+    return [ Real('%s__%s' % (prefix, i), ctx) for i in range(sz) ]
 
 def FreshReal(prefix='b', ctx=None):
     """Return a fresh real constant in the given context using the given prefix.
@@ -6470,7 +6470,7 @@ class Solver(Z3PPObject):
             self.solver = solver
         Z3_solver_inc_ref(self.ctx.ref(), self.solver)
         if logFile is not None:
-            self.set("solver.smtlib2_log", logFile)
+            self.set("smtlib2_log", logFile)
 
     def __del__(self):
         if self.solver is not None and self.ctx.ref() is not None:
@@ -6911,9 +6911,9 @@ class Solver(Z3PPObject):
         """
         return Z3_solver_to_string(self.ctx.ref(), self.solver)
 
-    def dimacs(self):
+    def dimacs(self, include_names=True):
         """Return a textual representation of the solver in DIMACS format."""
-        return Z3_solver_to_dimacs_string(self.ctx.ref(), self.solver)
+        return Z3_solver_to_dimacs_string(self.ctx.ref(), self.solver, include_names)
 
     def to_smt2(self):
         """return SMTLIB2 formatted benchmark for solver's assertions"""
@@ -10036,10 +10036,13 @@ class SeqRef(ExprRef):
     def is_string_value(self):
         return Z3_is_string(self.ctx_ref(), self.as_ast())
 
+
     def as_string(self):
         """Return a string representation of sequence expression."""
         if self.is_string_value():
-           return Z3_get_string(self.ctx_ref(), self.as_ast())
+            string_length = ctypes.c_uint()
+            chars = Z3_get_lstring(self.ctx_ref(), self.as_ast(), byref(string_length))
+            return string_at(chars, size=string_length.value).decode('latin-1')
         return Z3_ast_to_string(self.ctx_ref(), self.as_ast())
 
     def __le__(self, other):

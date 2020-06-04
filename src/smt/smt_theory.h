@@ -30,16 +30,16 @@ namespace smt {
     class model_value_proc;
 
     class theory {
+    protected:
         theory_id       m_id;
-        context *       m_context;
-        ast_manager *   m_manager;
+        context &       ctx;
+        ast_manager &   m;
         enode_vector    m_var2enode;
         unsigned_vector m_var2enode_lim;
 
         friend class context;
         friend class arith_value;
     protected:
-        virtual void init(context * ctx);
 
         /* ---------------------------------------------------
         
@@ -106,6 +106,26 @@ namespace smt {
                     th.log_axiom_instantiation(body);
                 }
             }
+
+            scoped_trace_stream(theory& th, std::function<literal_vector(void)>& fn): m(th.get_manager()) {
+                if (m.has_trace_stream()) {
+                    th.log_axiom_instantiation(fn());
+                }
+            }
+
+            scoped_trace_stream(theory& th, literal_vector const& lits): m(th.get_manager()) {
+                if (m.has_trace_stream()) {
+                    th.log_axiom_instantiation(lits);
+                }
+            }
+
+            scoped_trace_stream(theory& th, std::function<literal(void)>& fn): m(th.get_manager()) {
+                if (m.has_trace_stream()) {
+                    literal_vector ls;
+                    ls.push_back(fn());
+                    th.log_axiom_instantiation(ls);
+                }
+            }
             
             ~scoped_trace_stream() {
                 if (m.has_trace_stream()) {
@@ -114,6 +134,15 @@ namespace smt {
             }
         };
 
+        struct if_trace_stream {
+            ast_manager& m;
+            
+            if_trace_stream(ast_manager& m, std::function<void (void)>& fn): m(m) {
+                if (m.has_trace_stream()) {
+                    fn();
+                }
+            }
+        };        
 
     protected:
         /**
@@ -322,11 +351,12 @@ namespace smt {
 
 
     public:
-        theory(family_id fid);
+        theory(context& ctx, family_id fid);
         virtual ~theory();
         
-        virtual void setup() {
-        }
+        virtual void setup() {}
+
+        virtual void init() {}
 
         theory_id get_id() const {
             return m_id;
@@ -337,16 +367,14 @@ namespace smt {
         }
 
         context & get_context() const {
-            SASSERT(m_context);
-            return *m_context;
+            return ctx;
         }
-
-        context & ctx() const { return get_context(); }
         
         ast_manager & get_manager() const {
-            SASSERT(m_manager);
-            return *m_manager;
+            return m;
         }
+
+        smt_params const& get_fparams() const;
 
         enode * get_enode(theory_var v) const {
             SASSERT(v < static_cast<int>(m_var2enode.size()));
@@ -375,6 +403,8 @@ namespace smt {
         bool is_representative(theory_var v) const {
             return get_representative(v) == v;
         }
+
+        virtual bool is_safe_to_copy(bool_var v) const { return true; }
         
         unsigned get_num_vars() const {
             return m_var2enode.size();
@@ -410,12 +440,19 @@ namespace smt {
             log_axiom_instantiation(to_app(r), axiom_id, num_bindings, bindings, pattern_id, used_enodes); 
         }
 
+        void log_axiom_instantiation(literal_vector const& ls);
+
         void log_axiom_instantiation(app * r, unsigned num_blamed_enodes, enode ** blamed_enodes) {
             vector<std::tuple<enode *, enode *>> used_enodes;
             for (unsigned i = 0; i < num_blamed_enodes; ++i) {
                 used_enodes.push_back(std::make_tuple(nullptr, blamed_enodes[i]));
             }
             log_axiom_instantiation(r, UINT_MAX, 0, nullptr, UINT_MAX, used_enodes);
+        }
+
+        void log_axiom_unit(app* r) {
+            log_axiom_instantiation(r);
+            m.trace_stream() << "[end-of-instance]\n";
         }
 
     public:
@@ -472,6 +509,12 @@ namespace smt {
         }
 
         literal mk_eq(expr * a, expr * b, bool gate_ctx);
+
+        literal mk_preferred_eq(expr* a, expr* b);
+
+        enode* ensure_enode(expr* e);
+
+        enode* get_root(expr* e) { return ensure_enode(e)->get_root(); }
 
         // -----------------------------------
         //

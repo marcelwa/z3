@@ -89,6 +89,10 @@ namespace qe {
                 m_t2x(m)
             {}
 
+            ~solver_state() {
+                reset();
+            }
+
             void g2s(goal const& g) {
                 goal2nlsat gs;
                 gs(g, m_params, m_solver, m_a2b, m_t2x);
@@ -231,6 +235,7 @@ namespace qe {
                 m_bound_bvars.reset();
                 m_preds.reset();
                 for (auto const& kv : m_bvar2level) {
+                    
                     m_solver.dec_ref(kv.m_key);
                 }
                 m_rvar2level.reset();
@@ -433,8 +438,10 @@ namespace qe {
             s.m_solver.vars(l, vs);
             TRACE("qe", s.m_solver.display(tout << vs << " ", l) << "\n";);
             for (unsigned v : vs) {
-                level.merge(s.m_rvar2level[v]);                
+                level.merge(s.m_rvar2level.get(v, max_level()));
             }
+            if (level == max_level()) 
+                throw default_exception("level not in NRA");
             set_level(l.var(), level);
             return level;
         }
@@ -606,7 +613,7 @@ namespace qe {
                 if (a.is_div(n, n1, n2) && a.is_numeral(n2, r) && !r.is_zero()) {
                     return;
                 }
-                if (a.is_power(n, n1, n2) && a.is_numeral(n2, r) && r.is_unsigned()) {
+                if (a.is_power(n, n1, n2) && a.is_numeral(n2, r) && r.is_unsigned() && r.is_pos()) {
                     return;
                 }
                 if (a.is_div(n) && s.m_mode == qsat_t && is_ground(n)) {

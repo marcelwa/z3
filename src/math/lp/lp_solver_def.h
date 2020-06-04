@@ -30,7 +30,7 @@ template <typename T, typename X> column_info<T> * lp_solver<T, X>::get_or_creat
 template <typename T, typename X>
 std::string lp_solver<T, X>::get_variable_name(unsigned j) const { // j here is the core solver index
     if (!m_settings.m_print_external_var_name)
-        return std::string("v")+T_to_string(j);
+        return std::string("j")+T_to_string(j);
     auto it = this->m_core_solver_columns_to_external_columns.find(j);
     if (it == this->m_core_solver_columns_to_external_columns.end())
         return std::string("x")+T_to_string(j);
@@ -399,7 +399,7 @@ template <typename T, typename X> unsigned lp_solver<T, X>::try_to_remove_some_r
 template <typename T, typename X> void lp_solver<T, X>::cleanup() {
     int n = 0; // number of deleted rows
     int d;
-    while ((d = try_to_remove_some_rows() > 0))
+    while ((d = try_to_remove_some_rows()) > 0)
         n += d;
 
      if (n == 1) {

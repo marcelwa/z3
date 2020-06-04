@@ -40,8 +40,8 @@ namespace smt {
         SASSERT(is_fixed(v));
         // WARNINING: it is not safe to use get_value(v) here, since
         // get_value(v) may not satisfy v bounds at this point.
-        CTRACE("arith_bug", !lower_bound(v).is_rational(), display_var(tout, v););
-        SASSERT(lower_bound(v).is_rational());
+        if (!lower_bound(v).is_rational())
+            return;
         numeral const & val = lower_bound(v).get_rational();
         value_sort_pair key(val, is_int_src(v));
         TRACE("arith_eq", tout << mk_pp(get_enode(v)->get_owner(), get_manager()) << " = " << val << "\n";);
@@ -248,7 +248,7 @@ namespace smt {
                     //
                     // x1 <= k1 x1 >= k1, x2 <= x1 + k2 x2 >= x1 + k2
                     // 
-                    TRACE("arith_eq_propagation", tout << "fixed\n";);
+                    TRACE("arith_eq", tout << "fixed\n";);
                     lower(x2)->push_justification(ante, numeral::zero(), proofs_enabled());
                     upper(x2)->push_justification(ante, numeral::zero(), proofs_enabled());
                     m_stats.m_fixed_eqs++;
@@ -350,14 +350,13 @@ namespace smt {
                     antecedents.num_params(), antecedents.params("eq-propagate")));
         TRACE("arith_eq", tout << "detected equality: #" << _x->get_owner_id() << " = #" << _y->get_owner_id() << "\n";
               display_var(tout, x);
-              display_var(tout, y););
-        TRACE("arith_eq_propagation",
-              for (unsigned i = 0; i <  lits.size(); ++i) {
-                  ctx.display_detailed_literal(tout, lits[i]);
+              display_var(tout, y); 
+              for (literal lit : lits) {
+                  ctx.display_detailed_literal(tout, lit);
                   tout << "\n";
               } 
-              for (unsigned i = 0; i < eqs.size(); ++i) {
-                  tout << mk_pp(eqs[i].first->get_owner(), m) << " = " << mk_pp(eqs[i].second->get_owner(), m) << "\n";
+              for (auto const& p : eqs) {
+                  tout << mk_pp(p.first->get_owner(), m) << " = " << mk_pp(p.second->get_owner(), m) << "\n";
               } 
               tout << " ==> ";
               tout << mk_pp(_x->get_owner(), m) << " = " << mk_pp(_y->get_owner(), m) << "\n";

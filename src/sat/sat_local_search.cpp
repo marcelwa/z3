@@ -31,7 +31,9 @@ namespace sat {
         for (unsigned i = 0; i < m_assumptions.size(); ++i) {
             add_clause(1, m_assumptions.c_ptr() + i);
         }
-
+        if (m_is_unsat)
+            return;
+        
         // add sentinel variable.
         m_vars.push_back(var_info());
 
@@ -167,9 +169,9 @@ namespace sat {
         init_goodvars();
         set_best_unsat();
 
-        for (bool_var v : m_units) {
+        for (unsigned i = 0; !m_is_unsat && i < m_units.size(); ++i) {
+            bool_var v = m_units[i];
             propagate(literal(v, !cur_solution(v)));
-            if (m_is_unsat) break;
         }
         if (m_is_unsat) {
             IF_VERBOSE(0, verbose_stream() << "unsat during reinit\n");
@@ -223,7 +225,7 @@ namespace sat {
     }    
     
     void local_search::verify_solution() const {
-        IF_VERBOSE(0, verbose_stream() << "verifying solution\n");
+        IF_VERBOSE(10, verbose_stream() << "verifying solution\n");
         for (constraint const& c : m_constraints) 
             verify_constraint(c);
     }
@@ -258,7 +260,7 @@ namespace sat {
     }
 
     void local_search::verify_constraint(constraint const& c) const {
-        unsigned value = constraint_value(c);
+        uint64_t value = constraint_value(c);
         IF_VERBOSE(11, display(verbose_stream() << "verify ", c););
         TRACE("sat", display(verbose_stream() << "verify ", c););
         if (c.m_k < value) {
@@ -276,8 +278,8 @@ namespace sat {
         }
     }
 
-    unsigned local_search::constraint_value(constraint const& c) const {
-        unsigned value = 0;
+    uint64_t local_search::constraint_value(constraint const& c) const {
+        uint64_t value = 0;
         for (literal t : c) {
             if (is_true(t)) {
                 value += constraint_coeff(c, t);
@@ -333,7 +335,12 @@ namespace sat {
 
     void local_search::add_unit(literal lit, literal exp) {
         bool_var v = lit.var();
-        if (is_unit(lit)) return;
+        if (is_unit(lit)) {
+            if (m_vars[v].m_value == lit.sign()) {
+                m_is_unsat = true;                
+            }
+            return;
+        }
         SASSERT(!m_units.contains(v));
         if (m_vars[v].m_value == lit.sign() && !m_initializing) {
             flip_walksat(v);
@@ -348,6 +355,7 @@ namespace sat {
 
     local_search::local_search() :         
         m_is_unsat(false),
+        m_initializing(false),
         m_par(nullptr) {
     }
 
@@ -489,7 +497,7 @@ namespace sat {
                     break;
                 }
                 case ba_solver::xr_t:
-                    NOT_IMPLEMENTED_YET();
+                    throw default_exception("local search is incompatible with enabling xor solving");
                     break;
                 }
             }
@@ -574,14 +582,16 @@ namespace sat {
         m_assumptions.append(sz, assumptions);
         unsigned num_units = m_units.size();
         init();
+        if (m_is_unsat)
+            return l_false;
         walksat();
-        
+
+        TRACE("sat", tout << m_units << "\n";);
         // remove unit clauses
         for (unsigned i = m_units.size(); i-- > num_units; ) {
             m_vars[m_units[i]].m_unit = false;
         }
         m_units.shrink(num_units); 
-        m_vars.pop_back();  // remove sentinel variable
 
         TRACE("sat", display(tout););
 
@@ -597,6 +607,7 @@ namespace sat {
         else {
             result = l_undef;
         }
+        m_vars.pop_back();  // remove sentinel variable
         IF_VERBOSE(1, verbose_stream() << "(sat.local-search " << result << ")\n";);
         IF_VERBOSE(20, display(verbose_stream()););
         return result;
@@ -638,7 +649,7 @@ namespace sat {
             propagate(~best);
         }        
         else {
-            std::cout << "no best\n";
+            IF_VERBOSE(1, verbose_stream() << "(sat.local-search no best)\n");
         }
     }
 
@@ -671,10 +682,10 @@ namespace sat {
             bool tt = cur_solution(v);
             coeff_vector const& falsep = m_vars[v].m_watch[!tt];
             for (pbcoeff const& pbc : falsep) {
-                int slack = constraint_slack(pbc.m_constraint_id);
+                int64_t slack = constraint_slack(pbc.m_constraint_id);
                 if (slack < 0)
                     ++best_bsb;
-                else if (slack < static_cast<int>(pbc.m_coeff))
+                else if (slack < static_cast<int64_t>(pbc.m_coeff))
                     best_bsb += num_unsat;
             }
             ++cit;
@@ -686,7 +697,7 @@ namespace sat {
                     coeff_vector const& falsep = m_vars[v].m_watch[!cur_solution(v)];
                     auto it = falsep.begin(), end = falsep.end();
                     for (; it != end; ++it) {
-                        int slack = constraint_slack(it->m_constraint_id);
+                        int64_t slack = constraint_slack(it->m_constraint_id);
                         if (slack < 0) {
                             if (bsb == best_bsb) {
                                 break;
@@ -695,7 +706,7 @@ namespace sat {
                                 ++bsb;
                             }
                         }
-                        else if (slack < static_cast<int>(it->m_coeff)) {
+                        else if (slack < static_cast<int64_t>(it->m_coeff)) {
                             bsb += num_unsat;
                             if (bsb > best_bsb) {
                                 break;
@@ -743,10 +754,12 @@ namespace sat {
             }
             add_unit(~lit, null_literal);
             if (!propagate(~lit)) {
-                IF_VERBOSE(0, verbose_stream() << "unsat\n");
+                IF_VERBOSE(2, verbose_stream() << "unsat\n");
                 m_is_unsat = true;
                 return;
             }
+            if (m_unsat_stack.empty())
+                return;
             goto reflip;
         }
 
@@ -771,7 +784,7 @@ namespace sat {
         for (auto const& pbc : truep) {
             unsigned ci = pbc.m_constraint_id;
             constraint& c = m_constraints[ci];
-            int old_slack = c.m_slack;
+            auto old_slack = c.m_slack;
             c.m_slack -= pbc.m_coeff;
             DEBUG_CODE(verify_slack(c););
             if (c.m_slack < 0 && old_slack >= 0) { // from non-negative to negative: sat -> unsat
@@ -781,7 +794,7 @@ namespace sat {
         for (auto const& pbc : falsep) {
             unsigned ci = pbc.m_constraint_id;
             constraint& c = m_constraints[ci];
-            int old_slack = c.m_slack;
+            auto old_slack = c.m_slack;
             c.m_slack += pbc.m_coeff;
             DEBUG_CODE(verify_slack(c););
             if (c.m_slack >= 0 && old_slack < 0) { // from negative to non-negative: unsat -> sat

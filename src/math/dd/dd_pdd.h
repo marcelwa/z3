@@ -227,7 +227,7 @@ namespace dd {
         bool var_is_leaf(PDD p, unsigned v);
 
         bool is_reachable(PDD p);
-        void compute_reachable(svector<bool>& reachable);
+        void compute_reachable(bool_vector& reachable);
         void try_gc();
         void reserve_var(unsigned v);
         bool well_formed();
@@ -320,7 +320,7 @@ namespace dd {
     public:
         pdd(pdd_manager& pm): root(0), m(pm) { SASSERT(is_zero()); }
         pdd(pdd const& other): root(other.root), m(other.m) { m.inc_ref(root); }
-        pdd(pdd && other): root(0), m(other.m) { std::swap(root, other.root); }
+        pdd(pdd && other) noexcept : root(0), m(other.m) { std::swap(root, other.root); }
         pdd& operator=(pdd const& other);
         ~pdd() { m.dec_ref(root); }
         pdd lo() const { return pdd(m.lo(root), m); }

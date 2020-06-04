@@ -1,21 +1,9 @@
 /*++
   Copyright (c) 2017 Microsoft Corporation
 
-  Module Name:
-
-  <name>
-
-  Abstract:
-
-  <abstract>
-
   Author:
-  Nikolaj Bjorner (nbjorner)
-  Lev Nachmanson (levnach)
-
-  Revision History:
-
-
+   Lev Nachmanson (levnach)
+   Nikolaj Bjorner (nbjorner)
   --*/
 #pragma once
 #include <map>
@@ -48,7 +36,7 @@ class nex_creator {
 public:
     static std::string ch(unsigned j) {
         std::stringstream s;
-        s << "v" << j;
+        s << "j" << j;
         return s.str();
     }
 
@@ -293,12 +281,9 @@ public:
         return gt(a.e(), b.e());
     }
     void process_map_pair(nex*e, const rational& coeff, nex_sum & sum, std::unordered_set<nex const*>&);
-#ifdef Z3DEBUG
-    static
-    bool equal(const nex*, const nex* );
+    static bool equal(const nex*, const nex* );
     nex* canonize(const nex*);
     nex* canonize_mul(nex_mul*);
     unsigned find_sum_in_mul(const nex_mul* a) const;
-#endif
 };
 }

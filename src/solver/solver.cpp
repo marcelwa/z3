@@ -58,10 +58,10 @@ std::ostream& solver::display(std::ostream & out, unsigned n, expr* const* assum
     return out;
 }
 
-std::ostream& solver::display_dimacs(std::ostream& out) const {
+std::ostream& solver::display_dimacs(std::ostream& out, bool include_names) const {
     expr_ref_vector fmls(get_manager());
     get_assertions(fmls);    
-    return ::display_dimacs(out, fmls);
+    return ::display_dimacs(out, fmls, include_names);
 }
 
 void solver::get_assertions(expr_ref_vector& fmls) const {
@@ -89,7 +89,7 @@ lbool solver::get_consequences(expr_ref_vector const& asms, expr_ref_vector cons
         return get_consequences_core(asms, vars, consequences);
     }
     catch (z3_exception& ex) {
-        if (asms.get_manager().canceled()) {
+        if (!asms.get_manager().inc()) {
             set_reason_unknown(Z3_CANCELED_MSG);
             return l_undef;
         }
@@ -335,7 +335,7 @@ lbool solver::check_sat(unsigned num_assumptions, expr * const * assumptions) {
         }
         throw;
     }
-    if (r == l_undef && get_manager().canceled()) {
+    if (r == l_undef && !get_manager().inc()) {
         dump_state(num_assumptions, assumptions);        
     }
     return r;

@@ -37,7 +37,6 @@ namespace sat {
             clause_filter(unsigned f, clause* cp):
                 m_filter(f), m_clause(cp) {}
         };
-        typedef svector<bool> bool_vector;
         unsigned                m_max_lut_size;
         vector<svector<clause_filter>>   m_clause_filters;  // index of clauses.
         uint64_t                m_combination;              // bit-mask of parities that have been found
@@ -51,12 +50,7 @@ namespace sat {
         clause_vector           m_removed_clauses;
         std::function<void (uint64_t, svector<bool_var> const& vars, bool_var v)> m_on_lut;
 
-        inline void set_combination(unsigned mask) { 
-            if (!get_combination(mask)) { 
-                m_combination |= (1ull << mask); 
-                m_num_combinations++;
-            }
-        }
+        void set_combination(unsigned mask);
         inline bool get_combination(unsigned mask) const { return (m_combination & (1ull << mask)) != 0; }
         bool lut_is_defined(unsigned sz);
         bool lut_is_defined(unsigned i, unsigned sz);
@@ -66,10 +60,10 @@ namespace sat {
         bool extract_lut(literal l1, literal l2);
         bool extract_lut(clause& c2);
         bool update_combinations(unsigned mask);
-        void init_mask(unsigned i);
         void init_clause_filter();
         void init_clause_filter(clause_vector& clauses);
         unsigned get_clause_filter(clause const& c);
+        std::ostream& display_mask(std::ostream& out, uint64_t mask, unsigned sz) const;
 
     public:
         lut_finder(solver& s) : s(s), m_max_lut_size(5) { }
@@ -79,5 +73,6 @@ namespace sat {
 
         unsigned max_lut_size() const { return m_max_lut_size; }
         void operator()(clause_vector& clauses);        
+
     };
 }

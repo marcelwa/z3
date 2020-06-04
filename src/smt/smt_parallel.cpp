@@ -15,12 +15,25 @@ Author:
 
 --*/
 
+
 #include "util/scoped_ptr_vector.h"
 #include "ast/ast_util.h"
 #include "ast/ast_pp.h"
 #include "ast/ast_translation.h"
 #include "smt/smt_parallel.h"
 #include "smt/smt_lookahead.h"
+
+#ifdef SINGLE_THREAD
+
+namespace smt {
+    
+    lbool parallel::operator()(expr_ref_vector const& asms) {
+        return l_undef;
+    }
+}
+
+#else
+
 #include <thread>
 
 namespace smt {
@@ -35,7 +48,7 @@ namespace smt {
 
         // try first sequential with a low conflict budget to make super easy problems cheap
         unsigned max_c = std::min(thread_max_conflicts, 40u);
-        ctx.get_fparams().m_max_conflicts = max_c;
+        flet<unsigned> _mc(ctx.get_fparams().m_max_conflicts, max_c);
         result = ctx.check(asms.size(), asms.c_ptr());
         if (result != l_undef || ctx.m_num_conflicts < max_c) {
             return result;
@@ -46,26 +59,36 @@ namespace smt {
             ERROR_EX
         };
 
+        vector<smt_params> smt_params;
         scoped_ptr_vector<ast_manager> pms;
         scoped_ptr_vector<context> pctxs;
         vector<expr_ref_vector> pasms;
+
         ast_manager& m = ctx.m;
+        scoped_limits sl(m.limit());
         unsigned finished_id = UINT_MAX;
         std::string        ex_msg;
         par_exception_kind ex_kind = DEFAULT_EX;
         unsigned error_code = 0;
         bool done = false;
         unsigned num_rounds = 0;
+        if (m.has_trace_stream())
+            throw default_exception("trace streams have to be off in parallel mode");
 
+        
+        for (unsigned i = 0; i < num_threads; ++i) {
+            smt_params.push_back(ctx.get_fparams());
+        }
         for (unsigned i = 0; i < num_threads; ++i) {
             ast_manager* new_m = alloc(ast_manager, m, true);
             pms.push_back(new_m);
-            pctxs.push_back(alloc(context, *new_m, ctx.get_fparams(), ctx.get_params())); 
+            pctxs.push_back(alloc(context, *new_m, smt_params[i], ctx.get_params())); 
             context& new_ctx = *pctxs.back();
             context::copy(ctx, new_ctx, true);
             new_ctx.set_random_seed(i + ctx.get_fparams().m_random_seed);
-            ast_translation tr(*new_m, m);
+            ast_translation tr(m, *new_m);
             pasms.push_back(tr(asms));
+            sl.push_child(&(new_m->limit()));
         }
 
         auto cube = [](context& ctx, expr_ref_vector& lasms, expr_ref& c) {
@@ -149,7 +172,11 @@ namespace smt {
                         result = r;
                         done = true;
                     }
-                    if (!first) return;
+                    if (!first && r != l_undef && result == l_undef) {
+                        finished_id = i;
+                        result = r;                        
+                    }
+                    else if (!first) return;
                 }
 
                 for (ast_manager* m : pms) {
@@ -168,6 +195,8 @@ namespace smt {
                 done = true;
             }
         };
+
+        // for debugging:  num_threads = 1;
 
         while (true) {
             vector<std::thread> threads(num_threads);
@@ -202,11 +231,11 @@ namespace smt {
         switch (result) {
         case l_true: 
             pctx.get_model(mdl);
-            if (mdl) {
-                ctx.set_model(mdl->translate(tr));
-            }
+            if (mdl) 
+                ctx.set_model(mdl->translate(tr));            
             break;
         case l_false:
+            ctx.m_unsat_core.reset();
             for (expr* e : pctx.unsat_core()) 
                 ctx.m_unsat_core.push_back(tr(e));
             break;
@@ -218,3 +247,4 @@ namespace smt {
     }
 
 }
+#endif

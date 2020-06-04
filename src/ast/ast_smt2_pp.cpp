@@ -816,10 +816,7 @@ class smt2_printer {
         TRACE("pp_let", tout << "decls.size(): " << decls.size() << "\n";);
         ptr_buffer<format> buf;
         unsigned num_op = 0;
-        vector<ptr_vector<format> >::iterator it  = decls.begin();
-        vector<ptr_vector<format> >::iterator end = decls.end();
-        for (; it != end; ++it) {
-            ptr_vector<format> & lvl_decls = *it;
+        for (ptr_vector<format> & lvl_decls : decls) {
             if (lvl_decls.empty())
                 continue;
             if (num_op > 0)
@@ -1370,6 +1367,12 @@ std::ostream& operator<<(std::ostream& out, expr_ref_vector const&  e) {
     smt2_pp_environment_dbg env(e.get_manager());
     params_ref p;
     return ast_smt2_pp(out, e.size(), e.c_ptr(), env, p, 0, 0, nullptr);
+}
+
+std::ostream& operator<<(std::ostream& out, var_ref_vector const&  e) {
+    smt2_pp_environment_dbg env(e.get_manager());
+    params_ref p;
+    return ast_smt2_pp(out, e.size(), (expr*const*)e.c_ptr(), env, p, 0, 0, nullptr);
 }
 
 std::ostream& operator<<(std::ostream& out, app_ref_vector const&  e) {
